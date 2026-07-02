@@ -472,6 +472,8 @@ App 必须包含以下能力：
 
 ### 阶段 7：Android 地图展示
 
+状态：已完成。
+
 交付内容：
 
 1. Android Google Maps SDK for Android。

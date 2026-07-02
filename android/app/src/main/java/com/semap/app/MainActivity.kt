@@ -6,8 +6,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -36,10 +38,23 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.google.android.gms.maps.CameraUpdateFactory
+import com.google.android.gms.maps.model.CameraPosition
+import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.LatLngBounds
+import com.google.maps.android.compose.GoogleMap
+import com.google.maps.android.compose.MapUiSettings
+import com.google.maps.android.compose.Marker
+import com.google.maps.android.compose.MarkerState
+import com.google.maps.android.compose.Polyline
+import com.google.maps.android.compose.rememberCameraPositionState
+
+private val DefaultCenter = LatLng(35.8617, 104.1954)
 
 class MainActivity : ComponentActivity() {
     private val viewModel by viewModels<SemapViewModel>()
@@ -88,10 +103,13 @@ private fun SemapApp(viewModel: SemapViewModel) {
                 onLogin = viewModel::login,
                 onRegister = viewModel::register,
             )
-            else -> TrackListScreen(
+            else -> MainScreen(
                 state = state,
                 onRefresh = viewModel::loadSegments,
                 onLogout = viewModel::logout,
+                onSelectSegment = viewModel::selectSegment,
+                onShowMap = viewModel::showMap,
+                onShowList = viewModel::showList,
             )
         }
     }
@@ -162,11 +180,16 @@ private fun AuthScreen(
 }
 
 @Composable
-private fun TrackListScreen(
+private fun MainScreen(
     state: SemapUiState,
     onRefresh: () -> Unit,
     onLogout: () -> Unit,
+    onSelectSegment: (Int) -> Unit,
+    onShowMap: () -> Unit,
+    onShowList: () -> Unit,
 ) {
+    val selectedSegment = state.segments.firstOrNull { it.id == state.selectedSegmentId }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -178,7 +201,11 @@ private fun TrackListScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column {
-                Text("轨迹列表", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Text(
+                    if (state.view == AppView.Map) "轨迹地图" else "轨迹列表",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                )
                 Text(state.account?.username.orEmpty(), color = Muted)
             }
             OutlinedButton(onClick = onLogout) {
@@ -187,6 +214,8 @@ private fun TrackListScreen(
         }
         Spacer(Modifier.height(14.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            ModeButton("地图", state.view == AppView.Map, onShowMap)
+            ModeButton("列表", state.view == AppView.List, onShowList)
             Button(
                 enabled = !state.busy,
                 onClick = onRefresh,
@@ -194,8 +223,9 @@ private fun TrackListScreen(
             ) {
                 Text("刷新")
             }
-            Text("${state.segments.size} 条轨迹", modifier = Modifier.align(Alignment.CenterVertically), color = Muted)
         }
+        Spacer(Modifier.height(8.dp))
+        Text("${state.segments.size} 条轨迹", color = Muted)
         if (state.error != null) {
             Spacer(Modifier.height(10.dp))
             Text(state.error, color = Danger, fontWeight = FontWeight.SemiBold)
@@ -203,39 +233,186 @@ private fun TrackListScreen(
         Spacer(Modifier.height(14.dp))
         if (state.busy && state.segments.isEmpty()) {
             CenterStatus("正在同步轨迹")
-        } else if (state.segments.isEmpty()) {
-            EmptyPanel("暂无轨迹")
+        } else if (state.view == AppView.Map) {
+            TrackMapScreen(
+                segments = state.segments,
+                selectedSegment = selectedSegment,
+                onSelectSegment = onSelectSegment,
+            )
         } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(state.segments, key = { it.id }) { segment ->
-                    TrackRow(segment)
-                }
+            TrackList(
+                segments = state.segments,
+                selectedSegment = selectedSegment,
+                onSelectSegment = onSelectSegment,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TrackMapScreen(
+    segments: List<TrackSegment>,
+    selectedSegment: TrackSegment?,
+    onSelectSegment: (Int) -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .border(1.dp, Border, RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color.White),
+        ) {
+            if (BuildConfig.GOOGLE_MAPS_CONFIGURED) {
+                SegmentMap(
+                    segments = segments,
+                    selectedSegment = selectedSegment,
+                    onSelectSegment = onSelectSegment,
+                )
+            } else {
+                EmptyPanel("缺少 GOOGLE_MAPS_API_KEY")
+            }
+            if (segments.isEmpty() && BuildConfig.GOOGLE_MAPS_CONFIGURED) {
+                MapHint("暂无轨迹")
+            }
+        }
+        Panel {
+            if (selectedSegment == null) {
+                Text("暂无选中轨迹", color = Muted, fontWeight = FontWeight.SemiBold)
+            } else {
+                TrackSummary(selectedSegment)
             }
         }
     }
 }
 
 @Composable
-private fun TrackRow(segment: TrackSegment) {
-    Panel {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                sourceLabel(segment.sourceType),
-                modifier = Modifier
-                    .border(1.dp, Border, RoundedCornerShape(6.dp))
-                    .padding(horizontal = 8.dp, vertical = 3.dp),
-                color = TextPrimary,
-                fontWeight = FontWeight.SemiBold,
+private fun SegmentMap(
+    segments: List<TrackSegment>,
+    selectedSegment: TrackSegment?,
+    onSelectSegment: (Int) -> Unit,
+) {
+    val cameraPositionState = rememberCameraPositionState {
+        position = CameraPosition.fromLatLngZoom(DefaultCenter, 4f)
+    }
+    var mapLoaded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(mapLoaded, segments, selectedSegment?.id) {
+        if (!mapLoaded) {
+            return@LaunchedEffect
+        }
+        val points = visiblePoints(selectedSegment, segments)
+        when (points.size) {
+            0 -> cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(DefaultCenter, 4f))
+            1 -> cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(points.first(), 10f))
+            else -> {
+                val bounds = LatLngBounds.builder()
+                points.forEach { bounds.include(it) }
+                cameraPositionState.animate(CameraUpdateFactory.newLatLngBounds(bounds.build(), 90))
+            }
+        }
+    }
+
+    GoogleMap(
+        modifier = Modifier.fillMaxSize(),
+        cameraPositionState = cameraPositionState,
+        uiSettings = MapUiSettings(
+            compassEnabled = true,
+            mapToolbarEnabled = false,
+            zoomControlsEnabled = false,
+        ),
+        onMapLoaded = { mapLoaded = true },
+    ) {
+        for (segment in segments) {
+            val selected = segment.id == selectedSegment?.id
+            val path = segment.points.map { LatLng(it.lat, it.lng) }
+            if (path.size > 1) {
+                Polyline(
+                    points = path,
+                    clickable = true,
+                    color = if (selected) Danger else Brand,
+                    geodesic = true,
+                    width = if (selected) 10f else 6f,
+                    zIndex = if (selected) 20f else 5f,
+                    onClick = { onSelectSegment(segment.id) },
+                )
+            }
+            for (point in segment.points) {
+                Marker(
+                    state = MarkerState(position = LatLng(point.lat, point.lng)),
+                    title = segment.title,
+                    snippet = point.name,
+                    zIndex = if (selected) 30f else 10f,
+                    onClick = {
+                        onSelectSegment(segment.id)
+                        true
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TrackList(
+    segments: List<TrackSegment>,
+    selectedSegment: TrackSegment?,
+    onSelectSegment: (Int) -> Unit,
+) {
+    if (segments.isEmpty()) {
+        EmptyPanel("暂无轨迹")
+        return
+    }
+
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        items(segments, key = { it.id }) { segment ->
+            TrackRow(
+                segment = segment,
+                selected = selectedSegment?.id == segment.id,
+                onClick = { onSelectSegment(segment.id) },
             )
-            Spacer(Modifier.width(8.dp))
-            Text("${segment.points.size} 点", color = Muted)
         }
-        Spacer(Modifier.height(8.dp))
-        Text(segment.title, fontWeight = FontWeight.Bold, color = TextPrimary)
-        if (segment.summary != null) {
-            Spacer(Modifier.height(4.dp))
-            Text(segment.summary, color = Muted)
-        }
+    }
+}
+
+@Composable
+private fun TrackRow(segment: TrackSegment, selected: Boolean, onClick: () -> Unit) {
+    Panel(
+        modifier = Modifier
+            .border(
+                width = if (selected) 2.dp else 1.dp,
+                color = if (selected) Brand else Border,
+                shape = RoundedCornerShape(8.dp),
+            )
+            .clickable(onClick = onClick),
+    ) {
+        TrackSummary(segment)
+    }
+}
+
+@Composable
+private fun TrackSummary(segment: TrackSegment) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            sourceLabel(segment.sourceType),
+            modifier = Modifier
+                .border(1.dp, Border, RoundedCornerShape(6.dp))
+                .padding(horizontal = 8.dp, vertical = 3.dp),
+            color = TextPrimary,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Spacer(Modifier.width(8.dp))
+        Text("${segment.points.size} 点", color = Muted)
+    }
+    Spacer(Modifier.height(8.dp))
+    Text(segment.title, fontWeight = FontWeight.Bold, color = TextPrimary)
+    if (segment.summary != null) {
+        Spacer(Modifier.height(4.dp))
+        Text(segment.summary, color = Muted)
     }
 }
 
@@ -251,7 +428,7 @@ private fun ModeButton(text: String, active: Boolean, onClick: () -> Unit) {
         onClick = onClick,
         colors = ButtonDefaults.outlinedButtonColors(
             containerColor = if (active) Color.White else Page,
-            contentColor = TextPrimary,
+            contentColor = if (active) Brand else TextPrimary,
         ),
     ) {
         Text(text)
@@ -259,12 +436,15 @@ private fun ModeButton(text: String, active: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun Panel(content: @Composable ColumnScope.() -> Unit) {
+private fun Panel(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .border(1.dp, Border, RoundedCornerShape(8.dp))
             .background(Color.White, RoundedCornerShape(8.dp))
+            .border(1.dp, Border, RoundedCornerShape(8.dp))
             .padding(18.dp),
         content = content,
     )
@@ -285,6 +465,21 @@ private fun EmptyPanel(text: String) {
 }
 
 @Composable
+private fun BoxScope.MapHint(text: String) {
+    Text(
+        text,
+        modifier = Modifier
+            .align(Alignment.TopStart)
+            .padding(14.dp)
+            .background(Color.White, RoundedCornerShape(8.dp))
+            .border(1.dp, Border, RoundedCornerShape(8.dp))
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        color = Muted,
+        fontWeight = FontWeight.SemiBold,
+    )
+}
+
+@Composable
 private fun CenterStatus(text: String) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -293,6 +488,11 @@ private fun CenterStatus(text: String) {
             Text(text, color = Muted)
         }
     }
+}
+
+private fun visiblePoints(selectedSegment: TrackSegment?, segments: List<TrackSegment>): List<LatLng> {
+    val source = if (selectedSegment?.points?.isNotEmpty() == true) listOf(selectedSegment) else segments
+    return source.flatMap { segment -> segment.points.map { LatLng(it.lat, it.lng) } }
 }
 
 private fun sourceLabel(sourceType: String) = when (sourceType) {

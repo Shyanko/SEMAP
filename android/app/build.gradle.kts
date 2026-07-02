@@ -4,6 +4,24 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+fun localEnvValue(name: String): String {
+    val envFile = rootProject.file("../.env")
+    if (!envFile.isFile) {
+        return ""
+    }
+    return envFile.readLines()
+        .firstOrNull { it.startsWith("$name=") }
+        ?.substringAfter("=")
+        ?.trim()
+        ?.trim('"', '\'')
+        .orEmpty()
+}
+
+val googleMapsApiKey = providers.gradleProperty("GOOGLE_MAPS_API_KEY")
+    .orElse(providers.environmentVariable("GOOGLE_MAPS_API_KEY"))
+    .orElse(localEnvValue("GOOGLE_MAPS_API_KEY"))
+    .get()
+
 android {
     namespace = "com.semap.app"
     compileSdk = 36
@@ -19,6 +37,8 @@ android {
             "SEMAP_API_BASE_URL",
             "\"${providers.gradleProperty("SEMAP_API_BASE_URL").orElse("http://10.0.2.2/api/").get()}\"",
         )
+        buildConfigField("Boolean", "GOOGLE_MAPS_CONFIGURED", googleMapsApiKey.isNotBlank().toString())
+        manifestPlaceholders["googleMapsApiKey"] = googleMapsApiKey
     }
 
     buildFeatures {
@@ -35,7 +55,7 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.datastore:datastore-preferences:1.2.1")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
-    implementation("com.google.android.gms:play-services-maps:20.0.0")
+    implementation("com.google.maps.android:maps-compose:8.3.0")
     implementation("com.squareup.okhttp3:okhttp:5.4.0")
     implementation("com.squareup.retrofit2:retrofit:3.0.0")
     implementation("com.squareup.retrofit2:converter-kotlinx-serialization:3.0.0")

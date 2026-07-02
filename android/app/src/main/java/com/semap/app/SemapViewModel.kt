@@ -38,6 +38,7 @@ class SemapViewModel(application: Application) : AndroidViewModel(application) {
                     token = token,
                     account = account,
                     segments = segments,
+                    selectedSegmentId = segments.firstOrNull()?.id,
                     error = null,
                 )
             }.onSuccess { state = it }
@@ -66,9 +67,29 @@ class SemapViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             state = state.copy(busy = true, error = null)
             runCatching { api.segments("Bearer $token") }
-                .onSuccess { state = state.copy(busy = false, segments = it) }
+                .onSuccess {
+                    state = state.copy(
+                        busy = false,
+                        segments = it,
+                        selectedSegmentId = state.selectedSegmentId?.takeIf { id ->
+                            it.any { segment -> segment.id == id }
+                        } ?: it.firstOrNull()?.id,
+                    )
+                }
                 .onFailure { state = state.copy(busy = false, error = errorMessage(it, "轨迹同步失败")) }
         }
+    }
+
+    fun selectSegment(segmentId: Int) {
+        state = state.copy(selectedSegmentId = segmentId)
+    }
+
+    fun showMap() {
+        state = state.copy(view = AppView.Map)
+    }
+
+    fun showList() {
+        state = state.copy(view = AppView.List)
     }
 
     fun logout() {
@@ -90,6 +111,7 @@ class SemapViewModel(application: Application) : AndroidViewModel(application) {
                     token = login.accessToken,
                     account = login.account,
                     segments = segments,
+                    selectedSegmentId = segments.firstOrNull()?.id,
                     error = null,
                 )
             }.onSuccess { state = it }
@@ -123,5 +145,12 @@ data class SemapUiState(
     val token: String? = null,
     val account: Account? = null,
     val segments: List<TrackSegment> = emptyList(),
+    val selectedSegmentId: Int? = null,
+    val view: AppView = AppView.Map,
     val error: String? = null,
 )
+
+enum class AppView {
+    Map,
+    List,
+}
