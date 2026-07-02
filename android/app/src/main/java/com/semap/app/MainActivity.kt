@@ -768,7 +768,13 @@ private fun TrackLogo(segment: TrackSegment) {
         modifier = Modifier.size(40.dp),
         contentAlignment = Alignment.Center,
     ) {
-        if (logoUrl == null) {
+        if (segment.sourceType == "gps") {
+            Image(
+                painter = painterResource(R.drawable.road),
+                contentDescription = null,
+                modifier = Modifier.size(32.dp),
+            )
+        } else if (logoUrl == null) {
             Text(label.take(5), color = textColor, fontWeight = FontWeight.ExtraBold)
         } else {
             AsyncImage(

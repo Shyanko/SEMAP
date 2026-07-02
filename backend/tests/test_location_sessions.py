@@ -45,6 +45,10 @@ def test_location_session_complete_flow():
         segment_id = session["segmentId"]
         assert session["status"] == "active"
         assert session["segment"]["sourceType"] == "gps"
+        assert session["segment"]["title"] == "定位上传 1"
+        assert session["segment"]["summary"] == "定位上传中"
+        assert session["segment"]["metadata"]["logoKind"] == "gps_road"
+        assert session["segment"]["metadata"]["logoUrl"] == "/logos/road.png"
         assert session["segment"]["points"] == []
 
         points_response = client.post(

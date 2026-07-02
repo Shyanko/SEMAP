@@ -5,13 +5,17 @@ import {
   CalendarClock,
   Download,
   LogOut,
+  Pencil,
   Plane,
   RefreshCw,
   Route,
+  Trash2,
   Train,
   User,
+  X,
 } from "lucide-react";
 import {
+  deleteSegment,
   fetchHealth,
   fetchMe,
   fetchSegments,
@@ -20,6 +24,7 @@ import {
   importTrain,
   login,
   register,
+  updateSegment,
 } from "./api";
 import { TrackMap } from "./TrackMap";
 import type { Account, AuthMode, HealthState, TrackSegment, TrainStationsResponse, WorkspaceView } from "./types";
@@ -69,6 +74,19 @@ function formatDate(value: string | null) {
   const date = new Date(value);
   const parts = Object.fromEntries(dateFormatter.formatToParts(date).map((part) => [part.type, part.value]));
   return `${parts.year}/${parts.month}/${parts.day}`;
+}
+
+function toDateTimeLocal(value: string | null) {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  const parts = Object.fromEntries(dateTimeFormatter.formatToParts(date).map((part) => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+}
+
+function fromDateTimeLocal(value: string) {
+  return value ? `${value}:00+08:00` : null;
 }
 
 function App() {
@@ -352,6 +370,8 @@ function Workspace({
   onSegmentsChange: (segments: TrackSegment[]) => void;
   onViewChange: (view: WorkspaceView) => void;
 }) {
+  const [editingSegment, setEditingSegment] = React.useState<TrackSegment | null>(null);
+
   return (
     <main
       className={view === "tracks" ? "shell tracksShell" : "shell importShell"}
@@ -425,6 +445,7 @@ function Workspace({
             busy={segmentsBusy}
             error={segmentsError}
             onSelectSegment={onSelectSegment}
+            onEditSegment={setEditingSegment}
           />
         ) : (
           <div className="importStage">
@@ -440,6 +461,23 @@ function Workspace({
           </div>
         )}
       </section>
+      {editingSegment ? (
+        <SegmentEditDialog
+          segment={editingSegment}
+          token={token}
+          onClose={() => setEditingSegment(null)}
+          onDeleted={(segmentId) => {
+            onSegmentsChange(segments.filter((segment) => segment.id !== segmentId));
+            onSelectSegment(null);
+            setEditingSegment(null);
+          }}
+          onSaved={(segment) => {
+            onSegmentsChange(segments.map((item) => (item.id === segment.id ? segment : item)));
+            onSelectSegment(segment.id);
+            setEditingSegment(null);
+          }}
+        />
+      ) : null}
     </main>
   );
 }
@@ -459,12 +497,14 @@ function TrackWorkspace({
   busy,
   error,
   onSelectSegment,
+  onEditSegment,
 }: {
   segments: TrackSegment[];
   selectedSegment: TrackSegment | null;
   busy: boolean;
   error: string;
   onSelectSegment: (segmentId: number | null) => void;
+  onEditSegment: (segment: TrackSegment) => void;
 }) {
   return (
     <div className="contentGrid">
@@ -480,6 +520,7 @@ function TrackWorkspace({
         <TrackList
           busy={busy}
           error={error}
+          onEditSegment={onEditSegment}
           segments={segments}
           selectedSegment={selectedSegment}
           onSelectSegment={onSelectSegment}
@@ -492,12 +533,14 @@ function TrackWorkspace({
 function TrackList({
   busy,
   error,
+  onEditSegment,
   segments,
   selectedSegment,
   onSelectSegment,
 }: {
   busy: boolean;
   error: string;
+  onEditSegment: (segment: TrackSegment) => void;
   segments: TrackSegment[];
   selectedSegment: TrackSegment | null;
   onSelectSegment: (segmentId: number | null) => void;
@@ -539,6 +582,19 @@ function TrackList({
             {selectedSegment?.id === segment.id ? (
               <>
                 <SegmentMetadata segment={segment} compact />
+                <div className="trackCardFooter">
+                  <button
+                    className="secondaryButton compactButton"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onEditSegment(segment);
+                    }}
+                    type="button"
+                  >
+                    <Pencil size={15} />
+                    更改
+                  </button>
+                </div>
               </>
             ) : null}
           </div>
@@ -551,7 +607,12 @@ function TrackList({
 function TrackLogo({ segment }: { segment: TrackSegment }) {
   const metadata = segment.metadata ?? {};
   const text = metadata.logoText ?? metadata.operatorCode ?? sourceLabel(segment.sourceType);
-  const logoUrl = metadata.logoKind === "railway_12306" ? "/logos/China_Railways.svg" : metadata.logoUrl;
+  const logoUrl =
+    metadata.logoKind === "railway_12306"
+      ? "/logos/China_Railways.svg"
+      : segment.sourceType === "gps"
+        ? "/logos/road.png"
+        : metadata.logoUrl;
   if (logoUrl) {
     return (
       <span
@@ -578,6 +639,128 @@ function TrackLogo({ segment }: { segment: TrackSegment }) {
     >
       {text.slice(0, 5)}
     </span>
+  );
+}
+
+function SegmentEditDialog({
+  segment,
+  token,
+  onClose,
+  onDeleted,
+  onSaved,
+}: {
+  segment: TrackSegment;
+  token: string;
+  onClose: () => void;
+  onDeleted: (segmentId: number) => void;
+  onSaved: (segment: TrackSegment) => void;
+}) {
+  const [title, setTitle] = React.useState(segment.title);
+  const [startedAt, setStartedAt] = React.useState(() => toDateTimeLocal(segment.startedAt));
+  const [endedAt, setEndedAt] = React.useState(() => toDateTimeLocal(segment.endedAt));
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState("");
+
+  React.useEffect(() => {
+    setTitle(segment.title);
+    setStartedAt(toDateTimeLocal(segment.startedAt));
+    setEndedAt(toDateTimeLocal(segment.endedAt));
+    setError("");
+  }, [segment]);
+
+  return (
+    <div className="modalBackdrop" onPointerDown={onClose}>
+      <section
+        aria-modal="true"
+        className="editModal"
+        onPointerDown={(event) => event.stopPropagation()}
+        role="dialog"
+      >
+        <div className="modalHeader">
+          <div>
+            <h3>更改路径</h3>
+            <p>{sourceLabel(segment.sourceType)} · v{segment.version}</p>
+          </div>
+          <button className="iconButton" onClick={onClose} type="button">
+            <X size={18} />
+          </button>
+        </div>
+        <form
+          className="editForm"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            setBusy(true);
+            setError("");
+            try {
+              const saved = await updateSegment(token, segment.id, {
+                version: segment.version,
+                title,
+                startedAt: fromDateTimeLocal(startedAt),
+                endedAt: fromDateTimeLocal(endedAt),
+              });
+              onSaved(saved);
+            } catch (updateError) {
+              setError(updateError instanceof Error ? updateError.message : "保存失败");
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <label>
+            <span>标题</span>
+            <input
+              maxLength={200}
+              minLength={1}
+              onChange={(event) => setTitle(event.target.value)}
+              required
+              value={title}
+            />
+          </label>
+          <label>
+            <span>出发时间</span>
+            <input
+              onChange={(event) => setStartedAt(event.target.value)}
+              type="datetime-local"
+              value={startedAt}
+            />
+          </label>
+          <label>
+            <span>到达时间</span>
+            <input
+              onChange={(event) => setEndedAt(event.target.value)}
+              type="datetime-local"
+              value={endedAt}
+            />
+          </label>
+          {error ? <p className="formError">{error}</p> : null}
+          <div className="modalActions">
+            <button
+              className="dangerButton"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                setError("");
+                try {
+                  await deleteSegment(token, segment.id, segment.version);
+                  onDeleted(segment.id);
+                } catch (deleteError) {
+                  setError(deleteError instanceof Error ? deleteError.message : "删除失败");
+                } finally {
+                  setBusy(false);
+                }
+              }}
+              type="button"
+            >
+              <Trash2 size={16} />
+              删除路径
+            </button>
+            <button className="primaryButton" disabled={busy} type="submit">
+              {busy ? "处理中" : "保存"}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
   );
 }
 

@@ -199,7 +199,8 @@ label {
 .secondaryButton,
 .dangerButton,
 .ghostButton,
-.downloadButton {
+.downloadButton,
+.iconButton {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -239,6 +240,21 @@ label {
   border: 1px solid #c6d5d1;
   background: #ffffff;
   color: #27434f;
+}
+
+.iconButton {
+  width: 36px;
+  min-height: 36px;
+  padding: 0;
+  border: 1px solid #c6d5d1;
+  background: #ffffff;
+  color: #27434f;
+}
+
+.compactButton {
+  min-height: 34px;
+  padding: 0 11px;
+  font-size: 13px;
 }
 
 .healthPill {
@@ -638,6 +654,66 @@ label {
 .metadataGroup span {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.trackCardFooter {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(23, 36, 45, 0.32);
+}
+
+.editModal {
+  display: grid;
+  gap: 18px;
+  width: min(100%, 440px);
+  padding: 22px;
+  border: 1px solid #d4dfdc;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 24px 54px rgba(29, 39, 48, 0.2);
+}
+
+.modalHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.modalHeader h3,
+.modalHeader p {
+  margin: 0;
+}
+
+.modalHeader h3 {
+  font-size: 18px;
+}
+
+.modalHeader p {
+  margin-top: 4px;
+  color: #687986;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.editForm {
+  display: grid;
+  gap: 14px;
+}
+
+.modalActions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .fieldGrid {

@@ -67,6 +67,30 @@ export function fetchSegments(token: string): Promise<TrackSegment[]> {
   return apiRequest("/segments", { token });
 }
 
+export function updateSegment(
+  token: string,
+  segmentId: number,
+  body: {
+    version: number;
+    title: string;
+    startedAt: string | null;
+    endedAt: string | null;
+  },
+): Promise<TrackSegment> {
+  return apiRequest(`/segments/${segmentId}`, {
+    method: "PATCH",
+    token,
+    body,
+  });
+}
+
+export function deleteSegment(token: string, segmentId: number, version: number): Promise<void> {
+  return apiRequest(`/segments/${segmentId}?version=${version}`, {
+    method: "DELETE",
+    token,
+  });
+}
+
 export function importFlight(
   token: string,
   body: { flightNumber: string; date: string },

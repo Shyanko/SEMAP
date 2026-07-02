@@ -466,19 +466,36 @@ def train_stations(payload: TrainStationsRequest, _account: dict = Depends(get_c
 @app.post("/api/location-sessions", response_model=LocationSessionResponse)
 def create_location_session(account: dict = Depends(get_current_account)):
     now = datetime.now(timezone.utc)
-    title = f"GPS {now.astimezone().strftime('%Y/%m/%d %H:%M')}"
     with get_connection() as conn:
         with conn.cursor() as cur:
+            cur.execute(
+                """
+                select count(*) as gps_count
+                from track_segments
+                where account_id = %s and source_type = 'gps'
+                """,
+                (account["id"],),
+            )
+            title = f"定位上传 {cur.fetchone()['gps_count'] + 1}"
             cur.execute(
                 """
                 insert into track_segments (
                     account_id, title, source_type, transport_type,
                     started_at, summary, is_approximate, metadata
                 )
-                values (%s, %s, 'gps', 'walk', %s, 'GPS 记录中', false, '{}'::jsonb)
+                values (%s, %s, 'gps', 'walk', %s, '定位上传中', false, %s)
                 returning *
                 """,
-                (account["id"], title, now),
+                (
+                    account["id"],
+                    title,
+                    now,
+                    Json({
+                        "logoKind": "gps_road",
+                        "logoUrl": "/logos/road.png",
+                        "logoText": "GPS",
+                    }),
+                ),
             )
             segment = cur.fetchone()
             cur.execute(

@@ -24,7 +24,7 @@ export type TrackSegmentMetadata = {
   registration?: string;
   operatorName?: string;
   operatorCode?: string;
-  logoKind?: "airline" | "railway_12306";
+  logoKind?: "airline" | "railway_12306" | "gps_road";
   logoUrl?: string;
   logoText?: string;
   unitNo?: string;
