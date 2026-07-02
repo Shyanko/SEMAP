@@ -362,7 +362,7 @@ Android 版本规则：
 8. 按站点顺序生成轨迹点。
 9. 只有起点和终点保留 `name`，中间站不在地图上显示 Marker。
 10. 标题由后端按车次和乘车区间生成。
-11. 通过 `https://api.rail.re/train/{trainCode}` 读取第一条担当记录，按 `emu_no` 归并生成担当车型展示值。
+11. 通过 `https://api.rail.re/train/{trainCode}` 读取第一条担当记录，使用原始 `emu_no` 去掉最后四位作为担当车型展示值。
 12. `metadata` 写入担当车型和项目本地中国铁路 logo URL，不写入中国铁路运营方。
 13. 设置 `isApproximate=true`。
 14. 摘要中写明按用户输入日期和乘车区间近似生成。

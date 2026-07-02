@@ -252,7 +252,7 @@ rail.re 当前验证结果：
 
 - `https://api.rail.re/train/{trainCode}` 返回按时间倒序排列的担当记录数组。
 - 记录字段包含 `date`、`emu_no` 和 `train_no`。
-- 火车导入使用第一条记录的 `emu_no` 生成担当车型展示值，例如 `CR400BFB5154` 显示为 `CR400`。
+- 火车导入使用第一条记录的 `emu_no` 生成担当车型展示值，展示值为原始 `emu_no` 去掉最后四位，例如 `CR400BFB5154` 显示为 `CR400BFB`。
 
 ## Android 环境
 

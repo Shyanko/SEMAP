@@ -222,7 +222,7 @@ def test_train_import_fallback_keeps_requested_date(monkeypatch):
     assert "2020-01-01" in segment.summary
     assert segment.started_at and segment.started_at.date() == requested
     assert [point.name for point in segment.points] == ["廊坊", "济南西"]
-    assert segment.metadata["vehicleModel"] == "CR400"
+    assert segment.metadata["vehicleModel"] == "CR400BFB"
     assert "operatorName" not in segment.metadata
     assert geocode_addresses == ["廊坊站", "济南西站"]
 
@@ -315,8 +315,9 @@ def test_cached_airline_logo_rejects_invalid_code():
 
 
 def test_train_vehicle_model_parses_rail_re_unit():
-    assert importers.train_vehicle_model("CR400BFB5154") == "CR400"
+    assert importers.train_vehicle_model("CR400BFB5154") == "CR400BFB"
     assert importers.train_vehicle_model("CRH380A2723") == "CRH380A"
+    assert importers.train_vehicle_model("ABC") == "ABC"
 
 
 def test_train_station_coordinate_uses_local_table(monkeypatch):

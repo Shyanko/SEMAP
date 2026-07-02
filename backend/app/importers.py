@@ -263,11 +263,8 @@ def flight_metadata(
 def train_vehicle_model(emu_no: str | None) -> str | None:
     if not emu_no:
         return None
-    cr_match = re.match(r"^(CR\d{3})", emu_no)
-    if cr_match:
-        return cr_match.group(1)
-    crh_match = re.match(r"^(CRH\d+[A-Z]+)", emu_no)
-    return crh_match.group(1) if crh_match else emu_no
+    value = emu_no.strip()
+    return value[:-4] if len(value) > 4 else value
 
 
 def fetch_train_unit_record(train_code: str) -> dict[str, Any] | None:
