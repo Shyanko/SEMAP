@@ -3,7 +3,6 @@ import { createRoot } from "react-dom/client";
 import {
   Activity,
   CalendarClock,
-  Check,
   LogOut,
   Map,
   Plane,
@@ -13,7 +12,6 @@ import {
   User,
 } from "lucide-react";
 import {
-  deleteSegment,
   fetchHealth,
   fetchMe,
   fetchSegments,
@@ -21,13 +19,30 @@ import {
   importTrain,
   login,
   register,
-  updateSegment,
 } from "./api";
 import { TrackMap } from "./TrackMap";
 import type { Account, AuthMode, HealthState, TrackSegment, WorkspaceView } from "./types";
 import "./styles.css";
 
 const TOKEN_STORAGE_KEY = "semap.accessToken";
+const CHINA_TIME_ZONE = "Asia/Shanghai";
+
+const dateTimeFormatter = new Intl.DateTimeFormat("zh-CN", {
+  timeZone: CHINA_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+const dateFormatter = new Intl.DateTimeFormat("zh-CN", {
+  timeZone: CHINA_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
 
 function sourceLabel(sourceType: TrackSegment["sourceType"]) {
   return {
@@ -41,25 +56,18 @@ function formatDateTime(value: string | null) {
   if (!value) {
     return "未设置";
   }
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
+  const date = new Date(value);
+  const parts = Object.fromEntries(dateTimeFormatter.formatToParts(date).map((part) => [part.type, part.value]));
+  return `${parts.year}/${parts.month}/${parts.day} ${parts.hour}:${parts.minute}`;
 }
 
-function toDateTimeInput(value: string | null) {
+function formatDate(value: string | null) {
   if (!value) {
-    return "";
+    return "未设置";
   }
   const date = new Date(value);
-  const localOffset = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - localOffset).toISOString().slice(0, 16);
-}
-
-function fromDateTimeInput(value: string) {
-  return value ? new Date(value).toISOString() : null;
+  const parts = Object.fromEntries(dateFormatter.formatToParts(date).map((part) => [part.type, part.value]));
+  return `${parts.year}/${parts.month}/${parts.day}`;
 }
 
 function App() {
@@ -77,7 +85,7 @@ function App() {
   const [segmentsError, setSegmentsError] = React.useState("");
 
   const selectedSegment = React.useMemo(
-    () => segments.find((segment) => segment.id === selectedId) ?? segments[0] ?? null,
+    () => segments.find((segment) => segment.id === selectedId) ?? null,
     [segments, selectedId],
   );
 
@@ -115,7 +123,7 @@ function App() {
           if (nextSegments.some((segment) => segment.id === currentId)) {
             return currentId;
           }
-          return nextSegments[0]?.id ?? null;
+          return null;
         });
       })
       .catch((error: Error) => setSegmentsError(error.message))
@@ -338,12 +346,20 @@ function Workspace({
   token: string;
   onLogout: () => void;
   onRefresh: () => void;
-  onSelectSegment: (segmentId: number) => void;
+  onSelectSegment: (segmentId: number | null) => void;
   onSegmentsChange: (segments: TrackSegment[]) => void;
   onViewChange: (view: WorkspaceView) => void;
 }) {
   return (
-    <main className="shell">
+    <main
+      className="shell"
+      onPointerDown={(event) => {
+        const target = event.target as Element;
+        if (!target.closest(".trackList, .mapSurface")) {
+          onSelectSegment(null);
+        }
+      }}
+    >
       <aside className="sidebar">
         <BrandBlock />
 
@@ -405,9 +421,7 @@ function Workspace({
             selectedSegment={selectedSegment}
             busy={segmentsBusy}
             error={segmentsError}
-            token={token}
             onSelectSegment={onSelectSegment}
-            onSegmentsChange={onSegmentsChange}
           />
         ) : (
           <ImportPanel
@@ -430,17 +444,13 @@ function TrackWorkspace({
   selectedSegment,
   busy,
   error,
-  token,
   onSelectSegment,
-  onSegmentsChange,
 }: {
   segments: TrackSegment[];
   selectedSegment: TrackSegment | null;
   busy: boolean;
   error: string;
-  token: string;
-  onSelectSegment: (segmentId: number) => void;
-  onSegmentsChange: (segments: TrackSegment[]) => void;
+  onSelectSegment: (segmentId: number | null) => void;
 }) {
   return (
     <div className="contentGrid">
@@ -460,20 +470,6 @@ function TrackWorkspace({
           selectedSegment={selectedSegment}
           onSelectSegment={onSelectSegment}
         />
-        <SegmentEditor
-          segment={selectedSegment}
-          token={token}
-          onDeleted={(segmentId) =>
-            onSegmentsChange(segments.filter((segment) => segment.id !== segmentId))
-          }
-          onSaved={(updatedSegment) =>
-            onSegmentsChange(
-              segments.map((segment) =>
-                segment.id === updatedSegment.id ? updatedSegment : segment,
-              ),
-            )
-          }
-        />
       </section>
     </div>
   );
@@ -490,7 +486,7 @@ function TrackList({
   error: string;
   segments: TrackSegment[];
   selectedSegment: TrackSegment | null;
-  onSelectSegment: (segmentId: number) => void;
+  onSelectSegment: (segmentId: number | null) => void;
 }) {
   return (
     <div className="panelSection">
@@ -505,14 +501,25 @@ function TrackList({
           <button
             className={selectedSegment?.id === segment.id ? "trackItem active" : "trackItem"}
             key={segment.id}
-            onClick={() => onSelectSegment(segment.id)}
+            onClick={(event) => {
+              event.stopPropagation();
+              onSelectSegment(segment.id);
+            }}
             type="button"
           >
-            <span className="trackType">{sourceLabel(segment.sourceType)}</span>
-            <strong>{segment.title}</strong>
-            <small>
-              {formatDateTime(segment.startedAt)} · {segment.points.length} 点
-            </small>
+            <div className="trackItemTitle">
+              <TrackLogo segment={segment} />
+              <div className="trackItemText">
+                <span className="trackType">{sourceLabel(segment.sourceType)}</span>
+                <strong>{segment.title}</strong>
+                <span className="trackDate">{formatDate(segment.startedAt)}</span>
+              </div>
+            </div>
+            {selectedSegment?.id === segment.id ? (
+              <>
+                <SegmentMetadata segment={segment} compact />
+              </>
+            ) : null}
           </button>
         ))}
       </div>
@@ -520,122 +527,118 @@ function TrackList({
   );
 }
 
-function SegmentEditor({
+function TrackLogo({ segment }: { segment: TrackSegment }) {
+  const metadata = segment.metadata ?? {};
+  const text = metadata.logoText ?? metadata.operatorCode ?? sourceLabel(segment.sourceType);
+  const logoUrl = metadata.logoKind === "railway_12306" ? "/logos/China_Railways.svg" : metadata.logoUrl;
+  if (logoUrl) {
+    return (
+      <span
+        className={
+          metadata.logoKind === "railway_12306"
+            ? "trackLogo imageLogo railway12306Logo"
+            : "trackLogo imageLogo"
+        }
+      >
+        <img
+          alt=""
+          onError={(event) => {
+            event.currentTarget.removeAttribute("src");
+          }}
+          src={logoUrl}
+        />
+        <span>{text.slice(0, 3)}</span>
+      </span>
+    );
+  }
+  return (
+    <span
+      className={metadata.logoKind === "railway_12306" ? "trackLogo railway12306Logo" : "trackLogo"}
+    >
+      {text.slice(0, 5)}
+    </span>
+  );
+}
+
+function trainStationName(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+  return value.endsWith("站") ? value : `${value}站`;
+}
+
+function segmentStartPlace(segment: TrackSegment) {
+  if (segment.sourceType === "train") {
+    return trainStationName(segment.points[0]?.name);
+  }
+  return segment.metadata?.originLocation ?? segment.points[0]?.name ?? null;
+}
+
+function segmentEndPlace(segment: TrackSegment) {
+  if (segment.sourceType === "train") {
+    return trainStationName(segment.points.at(-1)?.name);
+  }
+  return segment.metadata?.destinationLocation ?? segment.points.at(-1)?.name ?? null;
+}
+
+function SegmentMetadata({
   segment,
-  token,
-  onDeleted,
-  onSaved,
+  compact = false,
 }: {
-  segment: TrackSegment | null;
-  token: string;
-  onDeleted: (segmentId: number) => void;
-  onSaved: (segment: TrackSegment) => void;
+  segment: TrackSegment;
+  compact?: boolean;
 }) {
-  const [title, setTitle] = React.useState("");
-  const [startedAt, setStartedAt] = React.useState("");
-  const [endedAt, setEndedAt] = React.useState("");
-  const [note, setNote] = React.useState("");
-  const [busy, setBusy] = React.useState(false);
-  const [message, setMessage] = React.useState("");
-  const [error, setError] = React.useState("");
+  const metadata = segment.metadata ?? {};
+  const startPlace = segmentStartPlace(segment);
+  const endPlace = segmentEndPlace(segment);
+  const primaryItems = [
+    metadata.operatorName ? ["运营方", metadata.operatorName] : null,
+    metadata.vehicleModel ? [segment.sourceType === "train" ? "担当车型" : "机型", metadata.vehicleModel] : null,
+    metadata.registration ? ["注册号", metadata.registration] : null,
+  ].filter(Boolean) as [string, string][];
+  const locationItems = [
+    startPlace ? [segment.sourceType === "train" ? "出发地点" : "起飞地点", startPlace] : null,
+    endPlace ? [segment.sourceType === "train" ? "到达地点" : "降落地点", endPlace] : null,
+  ].filter(Boolean) as [string, string][];
+  const timeItems = [
+    ["出发时间", formatDateTime(segment.startedAt)],
+    ["到达时间", formatDateTime(segment.endedAt)],
+  ].filter(Boolean) as [string, string][];
+  const extraItems = [
+    metadata.unitNo && !compact ? ["车组号", metadata.unitNo] : null,
+  ].filter(Boolean) as [string, string][];
 
-  React.useEffect(() => {
-    setTitle(segment?.title ?? "");
-    setStartedAt(toDateTimeInput(segment?.startedAt ?? null));
-    setEndedAt(toDateTimeInput(segment?.endedAt ?? null));
-    setNote(segment?.note ?? "");
-    setMessage("");
-    setError("");
-  }, [segment]);
-
-  if (!segment) {
+  if (primaryItems.length === 0 && locationItems.length === 0 && timeItems.length === 0 && extraItems.length === 0) {
     return null;
   }
 
   return (
-    <form
-      className="panelSection editor"
-      onSubmit={async (event) => {
-        event.preventDefault();
-        setBusy(true);
-        setError("");
-        setMessage("");
-        try {
-          const updated = await updateSegment(token, segment.id, {
-            version: segment.version,
-            title,
-            startedAt: fromDateTimeInput(startedAt),
-            endedAt: fromDateTimeInput(endedAt),
-            note,
-          });
-          onSaved(updated);
-          setMessage("已保存");
-        } catch (saveError) {
-          setError(saveError instanceof Error ? saveError.message : "保存失败");
-        } finally {
-          setBusy(false);
-        }
-      }}
-    >
-      <div className="panelHeader">
-        <h3>轨迹详情</h3>
-        <span>v{segment.version}</span>
-      </div>
-      <label>
-        <span>标题</span>
-        <input value={title} onChange={(event) => setTitle(event.target.value)} required />
-      </label>
-      <div className="fieldGrid">
-        <label>
-          <span>开始时间</span>
-          <input
-            type="datetime-local"
-            value={startedAt}
-            onChange={(event) => setStartedAt(event.target.value)}
-          />
-        </label>
-        <label>
-          <span>结束时间</span>
-          <input
-            type="datetime-local"
-            value={endedAt}
-            onChange={(event) => setEndedAt(event.target.value)}
-          />
-        </label>
-      </div>
-      <label>
-        <span>备注</span>
-        <textarea value={note} onChange={(event) => setNote(event.target.value)} />
-      </label>
-      {message ? <p className="formSuccess">{message}</p> : null}
-      {error ? <p className="formError">{error}</p> : null}
-      <div className="buttonRow">
-        <button className="primaryButton" disabled={busy} type="submit">
-          <Check size={16} />
-          保存
-        </button>
-        <button
-          className="dangerButton"
-          disabled={busy}
-          onClick={async () => {
-            setBusy(true);
-            setError("");
-            setMessage("");
-            try {
-              await deleteSegment(token, segment.id, segment.version);
-              onDeleted(segment.id);
-            } catch (deleteError) {
-              setError(deleteError instanceof Error ? deleteError.message : "删除失败");
-            } finally {
-              setBusy(false);
-            }
-          }}
-          type="button"
-        >
-          删除
-        </button>
-      </div>
-    </form>
+    <div className={compact ? "metadataLine compact" : "metadataLine"}>
+      {primaryItems.length ? (
+        <div className="metadataGroup">
+          {primaryItems.map(([label, value]) => (
+            <span key={label}>
+              {label}：{value}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {locationItems.map(([label, value]) => (
+        <span className="metadataRow" key={label}>
+          {label}：{value}
+        </span>
+      ))}
+      {timeItems.map(([label, value]) => (
+        <span className="metadataRow" key={label}>
+          {label}：{value}
+        </span>
+      ))}
+      {extraItems.map(([label, value]) => (
+        <span className="metadataRow" key={label}>
+          {label}：{value}
+        </span>
+      ))}
+    </div>
   );
 }
 

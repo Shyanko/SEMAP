@@ -445,16 +445,17 @@ label {
 
 .trackList {
   display: grid;
-  gap: 9px;
+  gap: 8px;
   max-height: 300px;
   overflow: auto;
 }
 
 .trackItem {
   display: grid;
-  gap: 6px;
+  gap: 0;
   width: 100%;
-  padding: 13px;
+  min-height: 52px;
+  padding: 8px 10px;
   border: 1px solid #d4dfdc;
   border-radius: 8px;
   background: #ffffff;
@@ -463,11 +464,29 @@ label {
 }
 
 .trackItem.active {
+  gap: 8px;
+  padding: 13px;
   border-color: #22736f;
   box-shadow: inset 3px 0 0 #22736f;
 }
 
+.trackItemTitle {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 9px;
+  align-items: center;
+}
+
+.trackItemText {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .trackItem strong {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -482,6 +501,87 @@ label {
   color: #27434f;
   font-size: 12px;
   font-weight: 800;
+}
+
+.trackDate {
+  color: #687986;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.trackLogo {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 8px;
+  background: transparent;
+  color: #27434f;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.trackLogo img {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+}
+
+.imageLogo span {
+  display: none;
+}
+
+.imageLogo img:not([src]) {
+  display: none;
+}
+
+.imageLogo img:not([src]) + span {
+  display: grid;
+}
+
+.railway12306Logo {
+  color: #1f5fa8;
+  font-size: 10px;
+  letter-spacing: 0;
+}
+
+.railway12306Logo img {
+  width: 32px;
+  height: 32px;
+}
+
+.detailTitle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.metadataLine {
+  display: grid;
+  gap: 7px;
+  color: #526572;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.metadataLine.compact {
+  gap: 5px;
+}
+
+.metadataGroup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 14px;
+  min-width: 0;
+}
+
+.metadataRow,
+.metadataGroup span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .fieldGrid {

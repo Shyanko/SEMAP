@@ -19,6 +19,19 @@ export type TrackPoint = {
   raw: Record<string, unknown> | null;
 };
 
+export type TrackSegmentMetadata = {
+  vehicleModel?: string;
+  registration?: string;
+  operatorName?: string;
+  operatorCode?: string;
+  logoKind?: "airline" | "railway_12306";
+  logoUrl?: string;
+  logoText?: string;
+  unitNo?: string;
+  originLocation?: string;
+  destinationLocation?: string;
+};
+
 export type TrackSegment = {
   id: number;
   title: string;
@@ -28,8 +41,8 @@ export type TrackSegment = {
   startedAt: string | null;
   endedAt: string | null;
   summary: string | null;
-  note: string | null;
   isApproximate: boolean;
+  metadata: TrackSegmentMetadata;
   version: number;
   createdAt: string;
   updatedAt: string;

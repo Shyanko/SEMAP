@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
+from html import unescape
+import re
 from typing import Any
 
 import httpx
@@ -9,6 +11,8 @@ from app.train_station_coordinates import TRAIN_STATION_COORDINATES
 
 FR24_BASE_URL = "https://fr24api.flightradar24.com/api"
 CHINA_TZ = timezone(timedelta(hours=8))
+RAILWAY_12306_LOGO_URL = "/logos/China_Railways.svg"
+IATA_CODE_SEARCH_URL = "https://www.iata.org/en/publications/directories/code-search/"
 
 
 class ImportFailure(Exception):
@@ -39,8 +43,8 @@ class ImportedSegment:
     started_at: datetime | None
     ended_at: datetime | None
     summary: str
-    note: str | None
     is_approximate: bool
+    metadata: dict[str, Any]
     points: list[ImportedPoint]
     response_payload: dict[str, Any]
 
@@ -75,7 +79,7 @@ def request_json(
     url: str,
     failure_message: str,
     **kwargs: Any,
-) -> tuple[httpx.Response, dict[str, Any]]:
+) -> tuple[httpx.Response, Any]:
     try:
         response = client.get(url, **kwargs)
     except httpx.TimeoutException as error:
@@ -90,12 +94,141 @@ def request_json(
     return response, data
 
 
+def request_text(
+    client: httpx.Client,
+    url: str,
+    failure_message: str,
+    **kwargs: Any,
+) -> tuple[httpx.Response, str]:
+    try:
+        response = client.get(url, **kwargs)
+    except httpx.TimeoutException as error:
+        raise ImportFailure(f"{failure_message}：请求超时") from error
+    except httpx.HTTPError as error:
+        raise ImportFailure(f"{failure_message}：{error}") from error
+    return response, response.text
+
+
 def response_error(data: dict[str, Any]) -> str:
     for key in ("error", "error_message", "message", "msg", "status"):
         value = data.get(key)
         if isinstance(value, str) and value:
             return value
     return "没有返回错误详情"
+
+
+def flight_airline_code(flight_code: str) -> str | None:
+    match = re.match(r"^[A-Z]{2,3}", flight_code)
+    return match.group(0) if match else None
+
+
+def airline_logo_url(code: str | None) -> str | None:
+    if not code:
+        return None
+    return f"https://images.kiwi.com/airlines/64/{code}.png"
+
+
+def text_from_cell(value: str) -> str:
+    return re.sub(r"\s+", " ", unescape(re.sub(r"<[^>]+>", "", value))).strip()
+
+
+def parse_iata_airport_location(html: str, code: str) -> str | None:
+    target = code.upper()
+    for row in re.findall(r"<tr[^>]*>(.*?)</tr>", html, flags=re.DOTALL | re.IGNORECASE):
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", row, flags=re.DOTALL | re.IGNORECASE)
+        if len(cells) < 3:
+            continue
+        city, airport, location_code = [text_from_cell(cell) for cell in cells[:3]]
+        if location_code.upper() == target and city and airport:
+            return f"{city} {airport}"
+    return None
+
+
+def iata_airport_location(code: str) -> str | None:
+    with httpx.Client(timeout=20, trust_env=False, headers={"User-Agent": "Mozilla/5.0"}) as client:
+        try:
+            response, html = request_text(
+                client,
+                IATA_CODE_SEARCH_URL,
+                f"IATA 机场代码查询失败：{code}",
+                params={"airport.search": code},
+            )
+        except ImportFailure:
+            return None
+    if response.status_code != 200:
+        return None
+    return parse_iata_airport_location(html, code)
+
+
+def airport_location(code: str | None) -> str | None:
+    if not code:
+        return None
+    return iata_airport_location(code) or code
+
+
+def flight_metadata(
+    flight_code: str,
+    flight: dict[str, Any],
+    origin_location: str | None = None,
+    destination_location: str | None = None,
+) -> dict[str, Any]:
+    airline_code = flight_airline_code(flight_code)
+    operator_code = flight.get("painted_as") or flight.get("operating_as") or airline_code
+    metadata = {
+        "vehicleModel": flight.get("type"),
+        "registration": flight.get("reg"),
+        "operatorName": operator_code,
+        "operatorCode": airline_code or operator_code,
+        "originLocation": origin_location,
+        "destinationLocation": destination_location,
+        "logoKind": "airline",
+        "logoUrl": airline_logo_url(airline_code),
+        "logoText": airline_code or operator_code,
+    }
+    return {key: value for key, value in metadata.items() if value}
+
+
+def train_vehicle_model(emu_no: str | None) -> str | None:
+    if not emu_no:
+        return None
+    cr_match = re.match(r"^(CR\d{3})", emu_no)
+    if cr_match:
+        return cr_match.group(1)
+    crh_match = re.match(r"^(CRH\d+[A-Z]+)", emu_no)
+    return crh_match.group(1) if crh_match else emu_no
+
+
+def fetch_train_unit_record(train_code: str) -> dict[str, Any] | None:
+    with httpx.Client(timeout=12, trust_env=False, headers={"User-Agent": "Mozilla/5.0"}) as client:
+        try:
+            response, data = request_json(
+                client,
+                f"https://api.rail.re/train/{train_code}",
+                "rail.re 担当车型查询失败",
+            )
+        except ImportFailure:
+            return None
+    if response.status_code != 200 or not isinstance(data, list) or not data:
+        return None
+    first = data[0]
+    return first if isinstance(first, dict) else None
+
+
+def train_metadata(train_code: str) -> dict[str, Any]:
+    unit_record = fetch_train_unit_record(train_code)
+    emu_no = unit_record.get("emu_no") if unit_record else None
+    metadata: dict[str, Any] = {
+        "vehicleModel": train_vehicle_model(emu_no),
+        "unitNo": emu_no,
+        "operatorName": "中国铁路",
+        "operatorCode": "12306",
+        "logoKind": "railway_12306",
+        "logoUrl": RAILWAY_12306_LOGO_URL,
+        "logoText": "12306",
+    }
+    if unit_record:
+        metadata["railRe"] = unit_record
+    return {key: value for key, value in metadata.items() if value}
 
 
 def geocode(address: str) -> tuple[float, float, dict[str, Any]]:
@@ -165,6 +298,8 @@ def resolve_flight_import(flight_number: str, flight_date: date) -> ImportedSegm
     if not origin or not destination:
         raise ImportFailure(f"FlightRadar24 未返回 {flight_code} 的起降机场")
 
+    origin_location = airport_location(origin)
+    destination_location = airport_location(destination)
     origin_lat, origin_lng, origin_raw = geocode(f"{origin} airport")
     dest_lat, dest_lng, dest_raw = geocode(f"{destination} airport")
     started_at = parse_datetime(flight.get("datetime_takeoff") or flight.get("first_seen"))
@@ -189,15 +324,15 @@ def resolve_flight_import(flight_number: str, flight_date: date) -> ImportedSegm
     )
 
     return ImportedSegment(
-        title=f"{flight_code} 航班",
+        title=f"{flight_code} {origin}-{destination}",
         source_type="flight",
         transport_type="flight",
         external_code=flight_code,
         started_at=started_at,
         ended_at=ended_at,
         summary="按 FlightRadar24 航班摘要和起降机场坐标近似生成。",
-        note=None,
         is_approximate=True,
+        metadata=flight_metadata(flight_code, flight, origin_location, destination_location),
         points=points,
         response_payload={"summary": flight, "livePointUsed": live_point is not None},
     )
@@ -359,15 +494,15 @@ def resolve_train_import(
     start_name = selected_rows[0]["station_name"]
     end_name = selected_rows[-1]["station_name"]
     return ImportedSegment(
-        title=f"{code} {start_name}到{end_name}",
+        title=f"{code} {start_name}-{end_name}",
         source_type="train",
         transport_type="train",
         external_code=code,
         started_at=points[0].recorded_at,
         ended_at=points[-1].recorded_at,
         summary=f"按 {travel_date.isoformat()} 的 12306 车次信息近似生成，区间为 {start_name} 到 {end_name}。",
-        note=None,
         is_approximate=True,
+        metadata=train_metadata(code),
         points=points,
         response_payload={"search": match, "stations": rows, "selectedStations": selected_rows},
     )

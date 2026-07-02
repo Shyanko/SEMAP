@@ -93,33 +93,3 @@ export function importTrain(
     body,
   });
 }
-
-export function updateSegment(
-  token: string,
-  segmentId: number,
-  body: {
-    version: number;
-    title?: string;
-    startedAt?: string | null;
-    endedAt?: string | null;
-    summary?: string | null;
-    note?: string | null;
-  },
-): Promise<TrackSegment> {
-  return apiRequest(`/segments/${segmentId}`, {
-    method: "PATCH",
-    token,
-    body,
-  });
-}
-
-export function deleteSegment(
-  token: string,
-  segmentId: number,
-  version: number,
-): Promise<void> {
-  return apiRequest(`/segments/${segmentId}?version=${version}`, {
-    method: "DELETE",
-    token,
-  });
-}

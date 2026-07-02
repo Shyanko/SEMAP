@@ -41,7 +41,7 @@ export function TrackMap({
 }: {
   segments: TrackSegment[];
   selectedSegment: TrackSegment | null;
-  onSelectSegment: (segmentId: number) => void;
+  onSelectSegment: (segmentId: number | null) => void;
 }) {
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const mapRef = React.useRef<google.maps.Map | null>(null);

@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -43,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import coil3.compose.AsyncImage
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
@@ -54,6 +56,9 @@ import com.google.maps.android.compose.MarkerState
 import com.google.maps.android.compose.Polyline
 import com.google.maps.android.compose.rememberCameraPositionState
 import java.time.LocalDate
+import java.time.OffsetDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 private val DefaultCenter = LatLng(35.8617, 104.1954)
 
@@ -518,13 +523,19 @@ private fun TrackRow(segment: TrackSegment, selected: Boolean, onClick: () -> Un
             )
             .clickable(onClick = onClick),
     ) {
-        TrackSummary(segment)
+        if (selected) {
+            TrackSummary(segment)
+        } else {
+            CompactTrackSummary(segment)
+        }
     }
 }
 
 @Composable
-private fun TrackSummary(segment: TrackSegment) {
+private fun CompactTrackSummary(segment: TrackSegment) {
     Row(verticalAlignment = Alignment.CenterVertically) {
+        TrackLogo(segment)
+        Spacer(Modifier.width(8.dp))
         Text(
             sourceLabel(segment.sourceType),
             modifier = Modifier
@@ -534,13 +545,88 @@ private fun TrackSummary(segment: TrackSegment) {
             fontWeight = FontWeight.SemiBold,
         )
         Spacer(Modifier.width(8.dp))
-        Text("${segment.points.size} 点", color = Muted)
+        Text(
+            segment.title,
+            modifier = Modifier.weight(1f),
+            fontWeight = FontWeight.Bold,
+            color = TextPrimary,
+        )
+        Text(formatDate(segment.startedAt), color = Muted, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun TrackSummary(segment: TrackSegment) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        TrackLogo(segment)
+        Spacer(Modifier.width(8.dp))
+        Text(
+            sourceLabel(segment.sourceType),
+            modifier = Modifier
+                .border(1.dp, Border, RoundedCornerShape(6.dp))
+                .padding(horizontal = 8.dp, vertical = 3.dp),
+            color = TextPrimary,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
     Spacer(Modifier.height(8.dp))
     Text(segment.title, fontWeight = FontWeight.Bold, color = TextPrimary)
+    SegmentMetadata(segment)
     if (segment.summary != null) {
         Spacer(Modifier.height(4.dp))
         Text(segment.summary, color = Muted)
+    }
+}
+
+@Composable
+private fun TrackLogo(segment: TrackSegment) {
+    val metadata = segment.metadata
+    val label = metadata.logoText ?: metadata.operatorCode ?: sourceLabel(segment.sourceType)
+    val textColor = if (metadata.logoKind == "railway_12306") RailwayBlue else TextPrimary
+    val logoUrl = if (metadata.logoKind == "railway_12306") {
+        "/logos/China_Railways.svg"
+    } else {
+        metadata.logoUrl
+    }
+    Box(
+        modifier = Modifier.size(40.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (logoUrl == null) {
+            Text(label.take(5), color = textColor, fontWeight = FontWeight.ExtraBold)
+        } else {
+            AsyncImage(
+                model = absoluteAssetUrl(logoUrl),
+                contentDescription = null,
+                modifier = Modifier.size(32.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SegmentMetadata(segment: TrackSegment) {
+    val metadata = segment.metadata
+    val startPlace = segmentStartPlace(segment)
+    val endPlace = segmentEndPlace(segment)
+    val items = listOfNotNull(
+        metadata.operatorName?.let { "运营方：$it" },
+        metadata.vehicleModel?.let { "${if (segment.sourceType == "train") "担当车型" else "机型"}：$it" },
+        metadata.registration?.let { "注册号：$it" },
+        startPlace?.let { "${if (segment.sourceType == "train") "出发地点" else "起飞地点"}：$it" },
+        endPlace?.let { "${if (segment.sourceType == "train") "到达地点" else "降落地点"}：$it" },
+        "出发时间：${formatDateTime(segment.startedAt)}",
+        "到达时间：${formatDateTime(segment.endedAt)}",
+        metadata.unitNo?.let { "车组号：$it" },
+    )
+    if (items.isEmpty()) {
+        return
+    }
+    Spacer(Modifier.height(6.dp))
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        for (item in items) {
+            Text(item, color = Muted, fontWeight = FontWeight.SemiBold)
+        }
     }
 }
 
@@ -630,6 +716,51 @@ private fun shouldShowMarker(segment: TrackSegment, index: Int, point: TrackPoin
     return point.name != null
 }
 
+private fun trainStationName(value: String?): String? {
+    if (value == null) {
+        return null
+    }
+    return if (value.endsWith("站")) value else "${value}站"
+}
+
+private fun segmentStartPlace(segment: TrackSegment): String? {
+    if (segment.sourceType == "train") {
+        return trainStationName(segment.points.firstOrNull()?.name)
+    }
+    return segment.metadata.originLocation ?: segment.points.firstOrNull()?.name
+}
+
+private fun segmentEndPlace(segment: TrackSegment): String? {
+    if (segment.sourceType == "train") {
+        return trainStationName(segment.points.lastOrNull()?.name)
+    }
+    return segment.metadata.destinationLocation ?: segment.points.lastOrNull()?.name
+}
+
+private fun absoluteAssetUrl(value: String): String {
+    if (value.startsWith("http://") || value.startsWith("https://")) {
+        return value
+    }
+    val origin = BuildConfig.SEMAP_API_BASE_URL.substringBefore("/api/").trimEnd('/')
+    return "$origin$value"
+}
+
+private fun formatDate(value: String?): String {
+    if (value == null) {
+        return "未设置"
+    }
+    return formatDateTime(value).take(10)
+}
+
+private fun formatDateTime(value: String?): String {
+    if (value == null) {
+        return "未设置"
+    }
+    return OffsetDateTime.parse(value.replace("Z", "+00:00"))
+        .atZoneSameInstant(ChinaZone)
+        .format(DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm"))
+}
+
 private fun sourceLabel(sourceType: String) = when (sourceType) {
     "flight" -> "航班"
     "train" -> "火车"
@@ -641,5 +772,7 @@ private val Brand = Color(0xFF22736F)
 private val Page = Color(0xFFF4F7F6)
 private val Border = Color(0xFFD4DFDC)
 private val Danger = Color(0xFFB94B42)
+private val RailwayBlue = Color(0xFF1F5FA8)
 private val Muted = Color(0xFF687986)
 private val TextPrimary = Color(0xFF1D2730)
+private val ChinaZone = ZoneId.of("Asia/Shanghai")

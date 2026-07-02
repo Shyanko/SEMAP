@@ -38,7 +38,7 @@ class SemapViewModel(application: Application) : AndroidViewModel(application) {
                     token = token,
                     account = account,
                     segments = segments,
-                    selectedSegmentId = segments.firstOrNull()?.id,
+                    selectedSegmentId = null,
                     error = null,
                 )
             }.onSuccess { state = it }
@@ -73,7 +73,7 @@ class SemapViewModel(application: Application) : AndroidViewModel(application) {
                         segments = it,
                         selectedSegmentId = state.selectedSegmentId?.takeIf { id ->
                             it.any { segment -> segment.id == id }
-                        } ?: it.firstOrNull()?.id,
+                        },
                     )
                 }
                 .onFailure { state = state.copy(busy = false, error = errorMessage(it, "轨迹同步失败")) }
@@ -175,7 +175,7 @@ class SemapViewModel(application: Application) : AndroidViewModel(application) {
                     token = login.accessToken,
                     account = login.account,
                     segments = segments,
-                    selectedSegmentId = segments.firstOrNull()?.id,
+                    selectedSegmentId = null,
                     error = null,
                 )
             }.onSuccess { state = it }

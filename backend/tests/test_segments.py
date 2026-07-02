@@ -33,12 +33,12 @@ def insert_segment(account_id: int, title: str = "航班轨迹") -> int:
                 """
                 insert into track_segments (
                     account_id, title, source_type, transport_type,
-                    started_at, ended_at, summary, note, is_approximate
+                    started_at, ended_at, summary, is_approximate
                 )
                 values (
                     %s, %s, 'flight', 'flight',
                     '2026-07-02T08:00:00Z', '2026-07-02T10:00:00Z',
-                    '导入生成的测试轨迹', '测试备注', false
+                    '导入生成的测试轨迹', false
                 )
                 returning id
                 """,
@@ -99,7 +99,6 @@ def test_list_get_update_and_delete_segment():
         updated = update_response.json()
         assert updated["title"] == "更新后的轨迹"
         assert updated["version"] == 2
-        assert updated["note"] == "测试备注"
 
         delete_response = client.delete(
             f"/api/segments/{segment_id}?version=2",

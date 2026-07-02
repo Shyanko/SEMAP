@@ -8,7 +8,6 @@ create table track_segments (
     started_at timestamptz,
     ended_at timestamptz,
     summary text,
-    note text,
     is_approximate boolean not null default false,
     version integer not null default 1,
     created_at timestamptz not null default now(),

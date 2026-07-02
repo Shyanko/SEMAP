@@ -55,7 +55,6 @@ class SegmentUpdateRequest(BaseModel):
     startedAt: datetime | None = None
     endedAt: datetime | None = None
     summary: str | None = None
-    note: str | None = None
 
 
 class FlightImportRequest(BaseModel):
@@ -79,8 +78,8 @@ class TrackSegmentResponse(BaseModel):
     startedAt: datetime | None
     endedAt: datetime | None
     summary: str | None
-    note: str | None
     isApproximate: bool
+    metadata: dict[str, Any] = Field(default_factory=dict)
     version: int
     createdAt: datetime
     updatedAt: datetime
@@ -152,8 +151,8 @@ def segment_response(segment: dict, points: list[dict]) -> TrackSegmentResponse:
         startedAt=segment["started_at"],
         endedAt=segment["ended_at"],
         summary=segment["summary"],
-        note=segment["note"],
         isApproximate=segment["is_approximate"],
+        metadata=segment["metadata"] or {},
         version=segment["version"],
         createdAt=segment["created_at"],
         updatedAt=segment["updated_at"],
@@ -200,7 +199,7 @@ def save_imported_segment(
                 """
                 insert into track_segments (
                     account_id, title, source_type, transport_type, external_code,
-                    started_at, ended_at, summary, note, is_approximate
+                    started_at, ended_at, summary, is_approximate, metadata
                 )
                 values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 returning *
@@ -214,8 +213,8 @@ def save_imported_segment(
                     imported.started_at,
                     imported.ended_at,
                     imported.summary,
-                    imported.note,
                     imported.is_approximate,
+                    Json(imported.metadata),
                 ),
             )
             segment = cur.fetchone()
@@ -440,7 +439,6 @@ def update_segment(
                     started_at = %s,
                     ended_at = %s,
                     summary = %s,
-                    note = %s,
                     version = version + 1,
                     updated_at = now()
                 where id = %s and account_id = %s
@@ -451,7 +449,6 @@ def update_segment(
                     payload.startedAt if "startedAt" in fields else current["started_at"],
                     payload.endedAt if "endedAt" in fields else current["ended_at"],
                     payload.summary if "summary" in fields else current["summary"],
-                    payload.note if "note" in fields else current["note"],
                     segment_id,
                     account["id"],
                 ),

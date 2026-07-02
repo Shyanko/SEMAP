@@ -99,12 +99,26 @@ data class TrackSegment(
     val startedAt: String? = null,
     val endedAt: String? = null,
     val summary: String? = null,
-    val note: String? = null,
     val isApproximate: Boolean,
+    val metadata: TrackSegmentMetadata = TrackSegmentMetadata(),
     val version: Int,
     val createdAt: String,
     val updatedAt: String,
     val points: List<TrackPoint>,
+)
+
+@Serializable
+data class TrackSegmentMetadata(
+    val vehicleModel: String? = null,
+    val registration: String? = null,
+    val operatorName: String? = null,
+    val operatorCode: String? = null,
+    val logoKind: String? = null,
+    val logoUrl: String? = null,
+    val logoText: String? = null,
+    val unitNo: String? = null,
+    val originLocation: String? = null,
+    val destinationLocation: String? = null,
 )
 
 @Serializable

@@ -5,7 +5,14 @@ from fastapi.testclient import TestClient
 
 import app.importers as importers
 from app.db import get_connection
-from app.importers import ImportedPoint, ImportedSegment, ImportFailure, select_train_rows, train_query_dates
+from app.importers import (
+    ImportedPoint,
+    ImportedSegment,
+    ImportFailure,
+    parse_iata_airport_location,
+    select_train_rows,
+    train_query_dates,
+)
 from app.main import app
 from app.migrate import run_migrations
 
@@ -29,6 +36,27 @@ def delete_account(username: str) -> None:
 
 def imported_segment(source_type: str) -> ImportedSegment:
     transport_type = "flight" if source_type == "flight" else "train"
+    metadata = (
+        {
+            "vehicleModel": "B763",
+            "registration": "N671UA",
+            "operatorName": "UAL",
+            "operatorCode": "UA",
+            "originLocation": "Chicago O'Hare International",
+            "destinationLocation": "London Heathrow",
+            "logoKind": "airline",
+            "logoText": "UA",
+        }
+        if source_type == "flight"
+        else {
+            "vehicleModel": "CR400",
+            "operatorName": "中国铁路",
+            "operatorCode": "12306",
+            "logoKind": "railway_12306",
+            "logoUrl": importers.RAILWAY_12306_LOGO_URL,
+            "logoText": "12306",
+        }
+    )
     return ImportedSegment(
         title="导入轨迹",
         source_type=source_type,
@@ -37,8 +65,8 @@ def imported_segment(source_type: str) -> ImportedSegment:
         started_at=datetime(2026, 7, 2, 8, 0, tzinfo=timezone.utc),
         ended_at=datetime(2026, 7, 2, 10, 0, tzinfo=timezone.utc),
         summary="测试导入",
-        note=None,
         is_approximate=True,
+        metadata=metadata,
         points=[
             ImportedPoint(0, 39.9042, 116.4074, name="起点"),
             ImportedPoint(1, 31.2304, 121.4737, name="终点"),
@@ -69,6 +97,8 @@ def test_import_flight_creates_segment(monkeypatch):
         assert data["sourceType"] == "flight"
         assert data["externalCode"] == "UA938"
         assert data["isApproximate"] is True
+        assert data["metadata"]["vehicleModel"] == "B763"
+        assert data["metadata"]["registration"] == "N671UA"
         assert [point["name"] for point in data["points"]] == ["起点", "终点"]
     finally:
         delete_account(username)
@@ -97,6 +127,10 @@ def test_import_train_creates_segment(monkeypatch):
         assert data["sourceType"] == "train"
         assert data["transportType"] == "train"
         assert data["externalCode"] == "G803"
+        assert data["metadata"]["vehicleModel"] == "CR400"
+        assert data["metadata"]["operatorName"] == "中国铁路"
+        assert data["metadata"]["logoText"] == "12306"
+        assert data["metadata"]["logoUrl"] == importers.RAILWAY_12306_LOGO_URL
         assert len(data["points"]) == 2
     finally:
         delete_account(username)
@@ -145,14 +179,32 @@ def test_train_import_fallback_keeps_requested_date(monkeypatch):
         return 39.0, 116.0, {"address": address}
 
     monkeypatch.setattr(importers, "geocode", fake_geocode)
+    monkeypatch.setattr(importers, "fetch_train_unit_record", lambda _code: {"emu_no": "CR400BFB5154"})
 
     segment = importers.resolve_train_import("G803", requested, "廊坊", "济南西")
 
-    assert segment.title == "G803 廊坊到济南西"
+    assert segment.title == "G803 廊坊-济南西"
     assert "2020-01-01" in segment.summary
     assert segment.started_at and segment.started_at.date() == requested
     assert [point.name for point in segment.points] == ["廊坊", "济南西"]
+    assert segment.metadata["vehicleModel"] == "CR400"
     assert geocode_addresses == ["廊坊站", "济南西站"]
+
+
+def test_parse_iata_airport_location():
+    html = """
+    <table><tbody>
+      <tr><td>Guangzhou</td><td>Baiyun Intl</td><td>CAN</td></tr>
+      <tr><td>Can Tho</td><td>International</td><td>VCA</td></tr>
+    </tbody></table>
+    """
+    assert parse_iata_airport_location(html, "CAN") == "Guangzhou Baiyun Intl"
+    assert parse_iata_airport_location(html, "ORD") is None
+
+
+def test_train_vehicle_model_parses_rail_re_unit():
+    assert importers.train_vehicle_model("CR400BFB5154") == "CR400"
+    assert importers.train_vehicle_model("CRH380A2723") == "CRH380A"
 
 
 def test_train_station_coordinate_uses_local_table(monkeypatch):
