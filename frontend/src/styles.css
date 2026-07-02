@@ -347,81 +347,51 @@ label {
   overflow: hidden;
 }
 
-.mapPlaceholder {
+.mapFrame {
+  position: relative;
+  min-height: 590px;
+  height: 100%;
+}
+
+.googleMap {
+  position: absolute;
+  inset: 0;
+}
+
+.mapStatus {
+  position: absolute;
+  inset: 0;
   display: grid;
   place-items: center;
   align-content: center;
   gap: 12px;
-  height: 100%;
+  background: #ffffff;
   color: #687986;
   font-size: 14px;
   font-weight: 800;
 }
 
-.mapPreview {
-  position: relative;
-  min-height: 590px;
-  overflow: hidden;
-  background: #ffffff;
-}
-
-.mapGrid {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(90, 112, 118, 0.12) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(90, 112, 118, 0.12) 1px, transparent 1px);
-  background-size: 58px 58px;
-}
-
-.routeLine {
-  position: absolute;
-  left: 18%;
-  right: 18%;
-  top: 47%;
-  height: 3px;
-  border-radius: 999px;
-  background: #22736f;
-  transform: rotate(-8deg);
-  transform-origin: center;
-}
-
-.routePoint {
-  position: absolute;
-  width: 14px;
-  height: 14px;
-  border: 3px solid #ffffff;
+.mapMarker {
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 2px solid #ffffff;
   border-radius: 50%;
+  background: #22736f;
+  box-shadow: 0 4px 12px rgba(29, 39, 48, 0.24);
+}
+
+.mapMarker.selected {
+  width: 16px;
+  height: 16px;
   background: #b94b42;
-  box-shadow: 0 8px 18px rgba(29, 39, 48, 0.2);
 }
 
-.mapOverlay {
-  position: absolute;
-  left: 22px;
-  bottom: 22px;
-  display: grid;
-  gap: 5px;
-  min-width: 220px;
-  padding: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.68);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.88);
-  box-shadow: 0 18px 38px rgba(29, 39, 48, 0.1);
-  backdrop-filter: blur(10px);
-}
-
-.mapOverlay span,
-.mapOverlay small,
 .panelHeader span,
 .trackItem small {
   color: #687986;
   font-size: 12px;
   font-weight: 800;
-}
-
-.mapOverlay strong {
-  font-size: 20px;
 }
 
 .sidePanel {
@@ -502,7 +472,6 @@ label {
 
 .fieldGrid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
 
@@ -535,7 +504,7 @@ label {
   }
 
   .mapSurface,
-  .mapPreview {
+  .mapFrame {
     min-height: 420px;
   }
 }
@@ -565,10 +534,6 @@ label {
   .toolbar {
     align-items: flex-start;
     flex-direction: column;
-  }
-
-  .fieldGrid {
-    grid-template-columns: 1fr;
   }
 
   .authPanel {

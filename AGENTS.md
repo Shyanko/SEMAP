@@ -203,6 +203,7 @@ App 必须包含以下能力：
 - `GOOGLE_MAPS_API_KEY`
 - `VITE_API_BASE_URL`
 - `VITE_GOOGLE_MAPS_API_KEY`
+- `VITE_GOOGLE_MAPS_MAP_ID`
 - `ANDROID_HOME`
 
 约束：
@@ -435,6 +436,8 @@ App 必须包含以下能力：
 - Web 前端能访问 `/api/health`。
 
 ### 阶段 5：Web 地图展示
+
+状态：代码已接入，待有效 `VITE_GOOGLE_MAPS_API_KEY` 后完成真实地图瓦片验收。
 
 交付内容：
 

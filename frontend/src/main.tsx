@@ -21,6 +21,7 @@ import {
   register,
   updateSegment,
 } from "./api";
+import { TrackMap } from "./TrackMap";
 import type { Account, AuthMode, HealthState, TrackSegment, WorkspaceView } from "./types";
 import "./styles.css";
 
@@ -434,7 +435,11 @@ function TrackWorkspace({
   return (
     <div className="contentGrid">
       <section className="mapSurface">
-        <MapPreview segment={selectedSegment} />
+        <TrackMap
+          segments={segments}
+          selectedSegment={selectedSegment}
+          onSelectSegment={onSelectSegment}
+        />
       </section>
 
       <section className="sidePanel">
@@ -460,40 +465,6 @@ function TrackWorkspace({
           }
         />
       </section>
-    </div>
-  );
-}
-
-function MapPreview({ segment }: { segment: TrackSegment | null }) {
-  if (!segment) {
-    return (
-      <div className="mapPlaceholder">
-        <Map size={42} />
-        <span>暂无轨迹</span>
-      </div>
-    );
-  }
-
-  return (
-    <div className="mapPreview">
-      <div className="mapGrid" />
-      <div className="routeLine" />
-      {segment.points.slice(0, 6).map((point, index) => (
-        <span
-          className="routePoint"
-          key={point.id}
-          style={{
-            left: `${18 + index * (64 / Math.max(segment.points.length - 1, 1))}%`,
-            top: `${34 + (index % 2) * 18}%`,
-          }}
-          title={point.name ?? `${point.lat}, ${point.lng}`}
-        />
-      ))}
-      <div className="mapOverlay">
-        <span>{sourceLabel(segment.sourceType)}</span>
-        <strong>{segment.title}</strong>
-        <small>{segment.points.length} 个点位</small>
-      </div>
     </div>
   );
 }

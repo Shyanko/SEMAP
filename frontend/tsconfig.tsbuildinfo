@@ -1,1 +1,1 @@
-{"root":["./src/api.ts","./src/main.tsx","./src/types.ts","./src/vite-env.d.ts"],"version":"6.0.3"}
+{"root":["./src/TrackMap.tsx","./src/api.ts","./src/googleMaps.ts","./src/main.tsx","./src/types.ts","./src/vite-env.d.ts"],"version":"6.0.3"}
