@@ -1,0 +1,549 @@
+# SEMAP agent 工作手册
+
+## 1. 项目定义
+
+SEMAP 是一个 Web 前端 + Android App + 云端后端的移动轨迹记录与地图展示系统。
+
+系统由四部分组成：
+
+1. Web 前端：用户登录、查看地图、上传航班号、上传车次号、查看和管理轨迹。
+2. Android App：用户登录、查看地图、上传航班号、上传车次号、记录 GPS 轨迹、编辑和删除轨迹。
+3. 后端 API：账号鉴权、轨迹数据存储、外部交通信息解析、移动端定位点接收、并发冲突检测。
+4. PostgreSQL 数据库：保存账号、轨迹片段、轨迹点、定位会话和外部导入记录。
+
+首版必须在当前公网服务器上运行后端和 Web 前端。Android App 通过公网 API 访问后端。
+
+## 2. 确定性交付范围
+
+### 2.1 Web 前端
+
+必须交付可公网访问的 Web 前端。
+
+技术栈固定为：
+
+- React
+- TypeScript
+- Vite
+- Google Maps JavaScript API
+- Fetch API
+- Nginx 静态文件服务
+
+Web 前端必须包含以下页面：
+
+1. 登录页。
+2. 注册页。
+3. 轨迹地图页。
+4. 轨迹列表页。
+5. 手动新增轨迹面板。
+6. 航班号导入面板。
+7. 火车车次导入面板。
+8. 轨迹详情和编辑面板。
+
+Web 前端必须包含以下能力：
+
+1. 用户注册登录。
+2. 保存登录令牌。
+3. 拉取当前用户的轨迹列表。
+4. 在 Google 地图上绘制轨迹点和轨迹线。
+5. 选中轨迹后高亮显示。
+6. 手动新增轨迹。
+7. 输入航班号生成航班轨迹。
+8. 输入车次号生成火车近似轨迹。
+9. 编辑轨迹标题、时间、备注。
+10. 删除轨迹。
+11. 处理并发版本冲突。
+
+Web 前端不负责 GPS 后台定位记录。GPS 记录由 Android App 交付。
+
+### 2.2 Android App
+
+必须交付原生 Android App。
+
+技术栈固定为：
+
+- Kotlin
+- Jetpack Compose
+- Android Gradle Plugin
+- Retrofit + OkHttp
+- Kotlinx Serialization
+- Google Maps SDK for Android
+- Room 仅用于短时离线缓存定位点
+
+App 必须包含以下页面：
+
+1. 登录页。
+2. 注册页。
+3. 轨迹列表页。
+4. 地图页。
+5. 手动新增轨迹页。
+6. 航班号导入页。
+7. 火车车次导入页。
+8. GPS 轨迹记录页。
+9. 轨迹详情和编辑页。
+
+App 必须包含以下能力：
+
+1. 用户注册登录。
+2. 保存登录令牌。
+3. 拉取当前用户的轨迹列表。
+4. 在 Google 地图上绘制轨迹点和轨迹线。
+5. 选中轨迹后高亮显示。
+6. 手动新增轨迹。
+7. 输入航班号生成航班轨迹。
+8. 输入车次号生成火车近似轨迹。
+9. 开始、暂停、继续、结束 GPS 记录。
+10. 网络短时不可用时缓存定位点。
+11. 恢复网络后补传定位点。
+12. 编辑轨迹标题、时间、备注。
+13. 删除轨迹。
+14. 处理并发版本冲突。
+
+### 2.3 后端 API
+
+技术栈固定为：
+
+- Python 3.11
+- FastAPI
+- Uvicorn
+- PostgreSQL
+- psycopg
+- systemd
+- Nginx 反向代理
+
+后端必须包含以下能力：
+
+1. 账号注册。
+2. 账号登录。
+3. JWT 鉴权。
+4. 用户数据隔离。
+5. 轨迹片段 CRUD。
+6. 轨迹点批量写入和读取。
+7. 航班号解析。
+8. 火车车次解析。
+9. GPS 定位会话管理。
+10. 写操作版本冲突检测。
+11. 中文错误响应。
+12. 健康检查接口。
+
+### 2.4 外部服务
+
+航班信息固定使用 FlightRadar24 API。
+
+地图能力固定使用 Google Maps：
+
+- Web 前端使用 Google Maps JavaScript API。
+- Android App 使用 Google Maps SDK for Android。
+- 后端需要坐标解析时使用 Google Maps Platform 的 Geocoding 能力。
+
+火车车次信息固定使用 12306：
+
+- 查询入口：`https://kyfw.12306.cn/otn/queryTrainInfo/init`
+- 查询日期：服务器当前日期。
+- 语义：使用当前日期车次信息近似生成轨迹。
+- 标记：所有 12306 生成的轨迹都设置 `isApproximate=true`。
+
+### 2.5 不交付内容
+
+首版不做以下内容：
+
+1. iOS App。
+2. 社交分享。
+3. 公开社区。
+4. 商业计费。
+5. 后台管理系统。
+6. 历史航班真实轨迹复原承诺。
+7. 历史铁路真实轨迹复原承诺。
+
+## 3. 当前服务器部署状态
+
+当前服务器作为 SEMAP 后端运行环境和编码环境。
+
+已确定组件：
+
+- 操作系统：Alibaba Cloud Linux 3。
+- 后端运行时：Python 3.11。
+- 后端框架：FastAPI。
+- Web 前端：React + TypeScript + Vite。
+- 数据库：PostgreSQL 13。
+- 反向代理：Nginx。
+- Android 构建基础：Java 17 + Android SDK command line tools。
+- Node.js：用于后续文档工具或辅助脚本。
+
+已启用服务：
+
+- `postgresql`
+- `nginx`
+- `semap-backend`
+
+服务入口：
+
+- 后端本机端口：`127.0.0.1:8000`
+- 公网 Web 入口：Nginx `80` 端口静态文件服务
+- 公网 API 入口：Nginx `/api/` 反向代理到后端
+- 健康检查：`GET /health`
+- API 健康检查：`GET /api/health`
+
+## 4. 环境变量
+
+本机运行配置文件为 `/root/semap/.env`，示例文件为 `/root/semap/.env.example`。
+
+必须使用的变量：
+
+- `SEMAP_HOST`
+- `SEMAP_PORT`
+- `DATABASE_URL`
+- `JWT_SECRET`
+- `FR24_API_TOKEN`
+- `GOOGLE_MAPS_API_KEY`
+- `VITE_API_BASE_URL`
+- `VITE_GOOGLE_MAPS_API_KEY`
+- `ANDROID_HOME`
+
+约束：
+
+1. 密钥不写入 README、AGENTS、代码注释和提交说明。
+2. FlightRadar24 token 只允许后端使用。
+3. Web Google Maps key 必须设置 HTTP 来源限制。
+4. Android Google Maps key 必须设置应用包名和 SHA-1 限制。
+5. Android App 和 Web 前端都不保存 FlightRadar24 token。
+
+## 5. 数据模型
+
+### 5.1 accounts
+
+- `id`
+- `username`
+- `password_hash`
+- `created_at`
+- `updated_at`
+
+### 5.2 track_segments
+
+- `id`
+- `account_id`
+- `title`
+- `source_type`: `manual`、`flight`、`train`、`gps`
+- `transport_type`: `flight`、`train`、`walk`、`car`、`other`
+- `external_code`
+- `started_at`
+- `ended_at`
+- `summary`
+- `note`
+- `is_approximate`
+- `version`
+- `created_at`
+- `updated_at`
+
+### 5.3 track_points
+
+- `id`
+- `segment_id`
+- `sequence`
+- `lat`
+- `lng`
+- `altitude`
+- `speed`
+- `recorded_at`
+- `name`
+- `raw`
+
+### 5.4 location_sessions
+
+- `id`
+- `account_id`
+- `segment_id`
+- `status`: `active`、`paused`、`finished`
+- `started_at`
+- `ended_at`
+- `created_at`
+- `updated_at`
+
+### 5.5 import_records
+
+- `id`
+- `account_id`
+- `segment_id`
+- `source_type`: `flight`、`train`
+- `external_code`
+- `request_payload`
+- `response_payload`
+- `status`
+- `created_at`
+
+## 6. 后端接口
+
+### 6.1 健康检查
+
+- `GET /health`
+- `GET /api/health`
+
+返回后端和数据库状态。
+
+### 6.2 账号
+
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `GET /api/auth/me`
+
+登录返回 JWT。App 后续请求使用 `Authorization: Bearer <token>`。
+
+### 6.3 轨迹
+
+- `GET /api/segments`
+- `POST /api/segments`
+- `GET /api/segments/{segmentId}`
+- `PATCH /api/segments/{segmentId}`
+- `DELETE /api/segments/{segmentId}`
+
+所有写操作必须携带 `version`。版本不一致时返回 `409`。
+
+### 6.4 航班导入
+
+- `POST /api/import/flight`
+
+请求字段：
+
+- `flightNumber`
+- `date`
+- `title`
+
+处理规则：
+
+1. 后端调用 FlightRadar24 API。
+2. 优先使用 API 返回的轨迹点。
+3. 没有轨迹点时使用起飞机场和降落机场坐标生成近似轨迹。
+4. 外部服务失败时不写入轨迹。
+5. 返回生成的 `TrackSegment`。
+
+### 6.5 火车导入
+
+- `POST /api/import/train`
+
+请求字段：
+
+- `trainCode`
+- `title`
+
+处理规则：
+
+1. 后端使用服务器当前日期查询 12306。
+2. 获取车次经停站。
+3. 将站点转换成坐标。
+4. 按站点顺序生成轨迹点。
+5. 设置 `isApproximate=true`。
+6. 摘要中写明按服务器当前日期车次近似生成。
+
+### 6.6 GPS 定位会话
+
+- `POST /api/location-sessions`
+- `POST /api/location-sessions/{sessionId}/points`
+- `PATCH /api/location-sessions/{sessionId}/pause`
+- `PATCH /api/location-sessions/{sessionId}/resume`
+- `PATCH /api/location-sessions/{sessionId}/finish`
+
+结束会话后生成或更新一个 `gps` 类型轨迹片段。
+
+## 7. 实施顺序
+
+### 阶段 1：服务器基础环境
+
+状态：已完成。
+
+交付内容：
+
+1. Python 3.11。
+2. PostgreSQL。
+3. Nginx。
+4. Java 17。
+5. Android SDK。
+6. FastAPI 最小健康检查服务。
+7. systemd 后端服务。
+
+验收：
+
+- `curl http://127.0.0.1:8000/health` 返回数据库正常。
+- `curl http://127.0.0.1/health` 返回数据库正常。
+
+### 阶段 2：后端数据模型和账号
+
+交付内容：
+
+1. 数据库迁移脚本。
+2. 账号注册登录。
+3. JWT 鉴权。
+4. 当前用户接口。
+5. 密码哈希。
+
+验收：
+
+- 能注册账号。
+- 能登录获取 token。
+- 未登录不能访问受保护接口。
+
+### 阶段 3：轨迹基础能力
+
+交付内容：
+
+1. 轨迹片段 CRUD。
+2. 轨迹点批量写入。
+3. 用户数据隔离。
+4. `version` 冲突检测。
+
+验收：
+
+- 用户只能看到自己的轨迹。
+- 并发更新同一条轨迹时返回 `409`。
+
+### 阶段 4：Android App 基础框架
+
+### 阶段 4：Web 前端基础框架
+
+状态：已开始。
+
+交付内容：
+
+1. React + TypeScript + Vite 项目骨架。
+2. API 客户端。
+3. 健康检查页面。
+4. 登录注册视图框架。
+5. 轨迹地图和轨迹列表布局。
+6. Nginx 静态文件部署。
+
+验收：
+
+- `npm run build` 成功。
+- 浏览器访问服务器 80 端口能看到 Web 前端。
+- Web 前端能访问 `/api/health`。
+
+### 阶段 5：Android App 基础框架
+
+交付内容：
+
+1. Android 项目骨架。
+2. Kotlin + Compose。
+3. 网络层。
+4. 登录注册页面。
+5. token 本地保存。
+6. 轨迹列表页面。
+
+验收：
+
+- App 能登录服务器。
+- App 能拉取轨迹列表。
+
+### 阶段 6：地图展示
+
+交付内容：
+
+1. Web Google Maps JavaScript API。
+2. Android Google Maps SDK for Android。
+3. 轨迹点 Marker。
+4. 轨迹 Polyline。
+5. 选中高亮。
+6. 地图视野自适应。
+
+验收：
+
+- Web 和 Android 都能展示用户轨迹。
+- 选中轨迹后地图高亮。
+
+### 阶段 7：航班和火车导入
+
+交付内容：
+
+1. FlightRadar24 后端适配器。
+2. 12306 后端适配器。
+3. 站点坐标解析。
+4. Web 航班导入面板。
+5. Web 火车导入面板。
+6. App 航班导入页。
+7. App 火车导入页。
+
+验收：
+
+- 输入有效航班号能生成轨迹。
+- 输入有效车次号能生成近似轨迹。
+- 外部 API 失败时返回中文错误且不写入错误数据。
+
+### 阶段 8：GPS 轨迹记录
+
+交付内容：
+
+1. Android 定位权限。
+2. 开始、暂停、继续、结束。
+3. 定位点上传。
+4. Room 短时离线缓存。
+5. 后端会话管理。
+
+验收：
+
+- 手机能记录真实定位点。
+- 网络恢复后能补传缓存点。
+- 结束后地图显示本次轨迹。
+
+### 阶段 9：交付测试
+
+交付内容：
+
+1. 后端接口测试。
+2. Web 关键流程测试。
+3. Android 关键流程测试。
+4. 部署说明。
+5. 演示账号。
+6. 演示脚本。
+
+验收：
+
+- 后端服务重启后可恢复。
+- Web 前端可公网访问。
+- App 可安装并完成完整演示流程。
+
+## 8. 测试要求
+
+后端必须测试：
+
+1. 健康检查。
+2. 注册登录。
+3. 鉴权失败。
+4. 用户数据隔离。
+5. 轨迹 CRUD。
+6. 版本冲突。
+7. 航班导入成功和失败。
+8. 火车导入成功和失败。
+9. GPS 会话完整流程。
+
+Android 必须测试：
+
+1. 登录注册。
+2. token 持久化。
+3. 轨迹列表。
+4. 地图绘制。
+5. 航班导入。
+6. 火车导入。
+7. GPS 权限拒绝。
+8. GPS 正常记录。
+9. 网络失败提示。
+
+Web 必须测试：
+
+1. 健康检查状态。
+2. 登录注册。
+3. token 持久化。
+4. 轨迹列表。
+5. 地图绘制。
+6. 航班导入。
+7. 火车导入。
+8. 轨迹编辑删除。
+9. 网络失败提示。
+
+## 9. 协作规则
+
+1. 开始新任务前先读 `AGENTS.md`、`README.md`、`doc/实现日志.md` 和相关源码。
+2. 每次改动后更新中文 README 和实现日志。
+3. 说明文档描述当前状态。
+4. 开发过程、失败尝试和取舍写入实现日志。
+5. 不保留过期路径代码。
+6. 不添加当前交付范围之外的功能。
+7. 删除文件前先确认用途并说明原因。
+8. 外部 API 行为变化时先验证，再修改适配器。
+9. 密钥只放在本机环境变量或受控部署配置中。

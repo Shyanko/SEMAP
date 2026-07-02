@@ -1,0 +1,14 @@
+.env
+api/
+.venv/
+node_modules/
+build/
+dist/
+frontend/dist/
+frontend/.env.local
+.gradle/
+local.properties
+*.apk
+*.aab
+__pycache__/
+*.pyc
