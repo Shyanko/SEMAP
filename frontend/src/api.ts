@@ -1,4 +1,4 @@
-import type { Account, TrackSegment } from "./types";
+import type { Account, TrackSegment, TrainStationsResponse } from "./types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
 
@@ -88,6 +88,17 @@ export function importTrain(
   },
 ): Promise<TrackSegment> {
   return apiRequest("/import/train", {
+    method: "POST",
+    token,
+    body,
+  });
+}
+
+export function fetchTrainStations(
+  token: string,
+  body: { trainCode: string; date: string },
+): Promise<TrainStationsResponse> {
+  return apiRequest("/import/train/stations", {
     method: "POST",
     token,
     body,

@@ -136,6 +136,39 @@ def test_import_train_creates_segment(monkeypatch):
         delete_account(username)
 
 
+def test_train_stations_returns_available_stations(monkeypatch):
+    run_migrations()
+    username, headers = create_user()
+    try:
+        monkeypatch.setattr(
+            "app.main.resolve_train_stations",
+            lambda train_code, travel_date: importers.TrainStations(
+                train_code=train_code,
+                requested_date=travel_date,
+                query_date=travel_date,
+                stations=[
+                    {"station_name": "北京南", "arrive_time": "----", "start_time": "12:12", "arrive_day_diff": "0"},
+                    {"station_name": "济南西", "arrive_time": "14:30", "start_time": "14:32", "arrive_day_diff": "0"},
+                    {"station_name": "上海虹桥", "arrive_time": "18:18", "start_time": "----", "arrive_day_diff": "0"},
+                ],
+            ),
+        )
+        response = client.post(
+            "/api/import/train/stations",
+            headers=headers,
+            json={"trainCode": "G803", "date": "2026-07-02"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["trainCode"] == "G803"
+        assert data["requestedDate"] == "2026-07-02"
+        assert data["queryDate"] == "2026-07-02"
+        assert [station["name"] for station in data["stations"]] == ["北京南", "济南西", "上海虹桥"]
+        assert data["stations"][0]["startTime"] == "12:12"
+    finally:
+        delete_account(username)
+
+
 def test_select_train_rows_uses_user_station_range():
     rows = [
         {"station_name": "北京南"},
@@ -189,6 +222,32 @@ def test_train_import_fallback_keeps_requested_date(monkeypatch):
     assert [point.name for point in segment.points] == ["廊坊", "济南西"]
     assert segment.metadata["vehicleModel"] == "CR400"
     assert geocode_addresses == ["廊坊站", "济南西站"]
+
+
+def test_train_stations_fallback_returns_requested_and_query_date(monkeypatch):
+    requested = date(2020, 1, 1)
+    fallback = date(2026, 7, 2)
+    rows = [
+        {"station_name": "廊坊", "start_time": "08:00", "arrive_time": "----", "arrive_day_diff": "0"},
+        {"station_name": "济南西", "start_time": "----", "arrive_time": "10:00", "arrive_day_diff": "0"},
+    ]
+
+    monkeypatch.setattr(importers, "train_query_dates", lambda _requested: [requested, fallback])
+    monkeypatch.setattr(
+        importers,
+        "fetch_train_rows",
+        lambda _client, _code, query_date: (
+            ({"train_no": "240000G8030B"} if query_date == fallback else None),
+            (rows if query_date == fallback else []),
+            (None if query_date == fallback else "2020-01-01 未找到 G803"),
+        ),
+    )
+
+    result = importers.resolve_train_stations("G803", requested)
+
+    assert result.requested_date == requested
+    assert result.query_date == fallback
+    assert [row["station_name"] for row in result.stations] == ["廊坊", "济南西"]
 
 
 def test_parse_iata_airport_location():

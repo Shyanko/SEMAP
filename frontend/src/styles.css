@@ -16,8 +16,14 @@ body {
 
 button,
 input,
-textarea {
+textarea,
+select,
+a {
   font: inherit;
+}
+
+a {
+  text-decoration: none;
 }
 
 button {
@@ -31,7 +37,8 @@ button:disabled {
 }
 
 input,
-textarea {
+textarea,
+select {
   width: 100%;
   border: 1px solid #ccd8d5;
   border-radius: 8px;
@@ -45,6 +52,11 @@ input {
   padding: 0 12px;
 }
 
+select {
+  min-height: 42px;
+  padding: 0 12px;
+}
+
 textarea {
   min-height: 86px;
   padding: 10px 12px;
@@ -53,6 +65,7 @@ textarea {
 
 input:focus,
 textarea:focus,
+select:focus,
 button:focus-visible {
   box-shadow: 0 0 0 3px rgba(34, 115, 111, 0.18);
   border-color: #22736f;
@@ -102,8 +115,14 @@ label {
   height: 44px;
   place-items: center;
   border-radius: 8px;
-  background: #22736f;
-  color: #ffffff;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.brandMark img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .brandBlock h1,
@@ -179,7 +198,8 @@ label {
 .primaryButton,
 .secondaryButton,
 .dangerButton,
-.ghostButton {
+.ghostButton,
+.downloadButton {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -212,6 +232,13 @@ label {
   border: 1px solid rgba(255, 255, 255, 0.16);
   background: transparent;
   color: #e9f1ef;
+}
+
+.downloadButton {
+  width: 100%;
+  border: 1px solid #c6d5d1;
+  background: #ffffff;
+  color: #27434f;
 }
 
 .healthPill {
@@ -295,6 +322,10 @@ label {
   color: #d9e5e2;
 }
 
+.sidebarFooter .downloadButton {
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
 .accountBadge {
   display: flex;
   align-items: center;
@@ -332,6 +363,13 @@ label {
   gap: 18px;
   min-height: 0;
   flex: 1;
+}
+
+.importStage {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  padding: clamp(24px, 6vh, 72px) 0;
 }
 
 .mapSurface,
@@ -409,9 +447,9 @@ label {
 }
 
 .sidePanel {
-  display: grid;
-  align-content: start;
+  display: flex;
   gap: 0;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -420,6 +458,12 @@ label {
   gap: 14px;
   padding: 18px;
   border-bottom: 1px solid #e2ebe8;
+}
+
+.sidePanel > .panelSection {
+  flex: 1;
+  min-height: 0;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
 }
 
 .panelSection:last-child {
@@ -444,23 +488,35 @@ label {
 }
 
 .trackList {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 8px;
-  max-height: 300px;
-  overflow: auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
 }
 
 .trackItem {
   display: grid;
+  flex: 0 0 auto;
   gap: 0;
   width: 100%;
+  min-width: 0;
   min-height: 52px;
   padding: 8px 10px;
   border: 1px solid #d4dfdc;
   border-radius: 8px;
   background: #ffffff;
   color: #1d2730;
+  cursor: pointer;
   text-align: left;
+}
+
+.trackItem:focus-visible {
+  border-color: #22736f;
+  box-shadow: 0 0 0 3px rgba(34, 115, 111, 0.18);
+  outline: 0;
 }
 
 .trackItem.active {
@@ -589,6 +645,35 @@ label {
   gap: 10px;
 }
 
+.stationList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: 180px;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid #d4dfdc;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.stationChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 9px;
+  border: 1px solid #c6d5d1;
+  border-radius: 8px;
+  color: #27434f;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.stationChip span {
+  color: #687986;
+}
+
 .buttonRow {
   display: flex;
   flex-wrap: wrap;
@@ -598,7 +683,9 @@ label {
 .importSurface {
   display: grid;
   gap: 20px;
+  width: min(100%, 540px);
   max-width: 540px;
+  margin: auto;
   padding: 22px;
 }
 
@@ -610,6 +697,33 @@ label {
 
 .importHeader svg {
   color: #22736f;
+}
+
+@media (min-width: 1041px) {
+  .shell {
+    height: 100vh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .tracksShell .workspace {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .importShell .workspace {
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .contentGrid {
+    height: 100%;
+  }
+
+  .mapSurface,
+  .mapFrame {
+    min-height: 0;
+  }
 }
 
 @media (max-width: 1040px) {

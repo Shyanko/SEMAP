@@ -3,8 +3,8 @@ import { createRoot } from "react-dom/client";
 import {
   Activity,
   CalendarClock,
+  Download,
   LogOut,
-  Map,
   Plane,
   RefreshCw,
   Route,
@@ -15,13 +15,14 @@ import {
   fetchHealth,
   fetchMe,
   fetchSegments,
+  fetchTrainStations,
   importFlight,
   importTrain,
   login,
   register,
 } from "./api";
 import { TrackMap } from "./TrackMap";
-import type { Account, AuthMode, HealthState, TrackSegment, WorkspaceView } from "./types";
+import type { Account, AuthMode, HealthState, TrackSegment, TrainStationsResponse, WorkspaceView } from "./types";
 import "./styles.css";
 
 const TOKEN_STORAGE_KEY = "semap.accessToken";
@@ -287,6 +288,7 @@ function AuthScreen({
         </form>
 
         <HealthPill health={health} />
+        <ApkDownloadLink />
       </section>
     </main>
   );
@@ -296,7 +298,7 @@ function BrandBlock() {
   return (
     <div className="brandBlock">
       <div className="brandMark">
-        <Map size={28} />
+        <img alt="" src="/logos/semap-logo.png" />
       </div>
       <div>
         <h1>SEMAP</h1>
@@ -352,7 +354,7 @@ function Workspace({
 }) {
   return (
     <main
-      className="shell"
+      className={view === "tracks" ? "shell tracksShell" : "shell importShell"}
       onPointerDown={(event) => {
         const target = event.target as Element;
         if (!target.closest(".trackList, .mapSurface")) {
@@ -392,6 +394,7 @@ function Workspace({
 
         <div className="sidebarFooter">
           <HealthPill health={health} />
+          <ApkDownloadLink />
           <div className="accountBadge">
             <User size={16} />
             <span>{account.username}</span>
@@ -424,18 +427,29 @@ function Workspace({
             onSelectSegment={onSelectSegment}
           />
         ) : (
-          <ImportPanel
-            source={view}
-            token={token}
-            onImported={(segment) => {
-              onSegmentsChange([segment, ...segments.filter((item) => item.id !== segment.id)]);
-              onSelectSegment(segment.id);
-              onViewChange("tracks");
-            }}
-          />
+          <div className="importStage">
+            <ImportPanel
+              source={view}
+              token={token}
+              onImported={(segment) => {
+                onSegmentsChange([segment, ...segments.filter((item) => item.id !== segment.id)]);
+                onSelectSegment(segment.id);
+                onViewChange("tracks");
+              }}
+            />
+          </div>
         )}
       </section>
     </main>
+  );
+}
+
+function ApkDownloadLink() {
+  return (
+    <a className="downloadButton" download href="/downloads/semap-debug.apk">
+      <Download size={16} />
+      下载 Android APK
+    </a>
   );
 }
 
@@ -498,14 +512,21 @@ function TrackList({
       {segments.length === 0 && !busy ? <p className="emptyText">暂无轨迹</p> : null}
       <div className="trackList">
         {segments.map((segment) => (
-          <button
+          <div
             className={selectedSegment?.id === segment.id ? "trackItem active" : "trackItem"}
             key={segment.id}
             onClick={(event) => {
               event.stopPropagation();
               onSelectSegment(segment.id);
             }}
-            type="button"
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onSelectSegment(segment.id);
+              }
+            }}
+            role="button"
+            tabIndex={0}
           >
             <div className="trackItemTitle">
               <TrackLogo segment={segment} />
@@ -520,7 +541,7 @@ function TrackList({
                 <SegmentMetadata segment={segment} compact />
               </>
             ) : null}
-          </button>
+          </div>
         ))}
       </div>
     </div>
@@ -656,13 +677,21 @@ function ImportPanel({
   const [date, setDate] = React.useState(() => new Date().toISOString().slice(0, 10));
   const [fromStation, setFromStation] = React.useState("");
   const [toStation, setToStation] = React.useState("");
+  const [trainStations, setTrainStations] = React.useState<TrainStationsResponse | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState("");
+  const stationOptions =
+    !isFlight && trainStations?.trainCode === code && trainStations.requestedDate === date
+      ? trainStations.stations
+      : [];
+  const fromIndex = stationOptions.findIndex((station) => station.name === fromStation);
+  const toOptions = fromIndex >= 0 ? stationOptions.slice(fromIndex + 1) : [];
 
   React.useEffect(() => {
     setCode("");
     setFromStation("");
     setToStation("");
+    setTrainStations(null);
     setError("");
   }, [source]);
 
@@ -682,6 +711,16 @@ function ImportPanel({
           setBusy(true);
           setError("");
           try {
+            if (!isFlight && stationOptions.length === 0) {
+              const nextStations = await fetchTrainStations(token, {
+                trainCode: code,
+                date,
+              });
+              setTrainStations(nextStations);
+              setFromStation("");
+              setToStation("");
+              return;
+            }
             const segment = isFlight
               ? await importFlight(token, {
                   flightNumber: code,
@@ -706,40 +745,90 @@ function ImportPanel({
           <input
             placeholder={isFlight ? "UA938" : "G803"}
             value={code}
-            onChange={(event) => setCode(event.target.value.toUpperCase())}
+            onChange={(event) => {
+              setCode(event.target.value.toUpperCase());
+              setFromStation("");
+              setToStation("");
+              setTrainStations(null);
+            }}
             required
           />
         </label>
         <label>
           <span>日期</span>
-          <input type="date" value={date} onChange={(event) => setDate(event.target.value)} required />
+          <input
+            type="date"
+            value={date}
+            onChange={(event) => {
+              setDate(event.target.value);
+              setFromStation("");
+              setToStation("");
+              setTrainStations(null);
+            }}
+            required
+          />
         </label>
-        {!isFlight ? (
-          <div className="fieldGrid">
-            <label>
-              <span>乘车起点</span>
-              <input
-                placeholder="北京南"
-                value={fromStation}
-                onChange={(event) => setFromStation(event.target.value)}
-                required
-              />
-            </label>
-            <label>
-              <span>乘车终点</span>
-              <input
-                placeholder="上海虹桥"
-                value={toStation}
-                onChange={(event) => setToStation(event.target.value)}
-                required
-              />
-            </label>
-          </div>
+        {!isFlight && stationOptions.length > 0 ? (
+          <>
+            <div className="stationList">
+              {stationOptions.map((station) => (
+                <span className="stationChip" key={`${station.sequence}-${station.name}`}>
+                  <strong>{station.name}</strong>
+                  <span>{station.startTime && station.startTime !== "----" ? station.startTime : station.arriveTime}</span>
+                </span>
+              ))}
+            </div>
+            <div className="fieldGrid">
+              <label>
+                <span>乘车起点</span>
+                <select
+                  value={fromStation}
+                  onChange={(event) => {
+                    setFromStation(event.target.value);
+                    setToStation("");
+                  }}
+                  required
+                >
+                  <option value="">选择出发站</option>
+                  {stationOptions.slice(0, -1).map((station) => (
+                    <option key={station.sequence} value={station.name}>
+                      {station.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>乘车终点</span>
+                <select
+                  disabled={!fromStation}
+                  value={toStation}
+                  onChange={(event) => setToStation(event.target.value)}
+                  required
+                >
+                  <option value="">选择到达站</option>
+                  {toOptions.map((station) => (
+                    <option key={station.sequence} value={station.name}>
+                      {station.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </>
         ) : null}
         {error ? <p className="formError">{error}</p> : null}
-        <button className="primaryButton" disabled={busy} type="submit">
+        <button
+          className="primaryButton"
+          disabled={
+            busy ||
+            !code ||
+            !date ||
+            (!isFlight && stationOptions.length > 0 && (!fromStation || !toStation))
+          }
+          type="submit"
+        >
           <CalendarClock size={16} />
-          {busy ? "导入中" : "导入轨迹"}
+          {busy ? (isFlight || stationOptions.length > 0 ? "导入中" : "查询中") : isFlight || stationOptions.length > 0 ? "导入轨迹" : "查询站点"}
         </button>
       </form>
     </section>

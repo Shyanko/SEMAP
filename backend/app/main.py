@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any
 
 import psycopg
@@ -13,6 +13,7 @@ from app.importers import (
     ImportFailure,
     resolve_flight_import,
     resolve_train_import,
+    resolve_train_stations,
 )
 from app.security import create_access_token, hash_password, read_account_id, verify_password
 
@@ -69,6 +70,23 @@ class TrainImportRequest(BaseModel):
     toStation: str = Field(min_length=1, max_length=64)
 
 
+class TrainStationsRequest(BaseModel):
+    trainCode: str = Field(min_length=1, max_length=16)
+    date: date
+
+
+class LocationPointRequest(BaseModel):
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
+    altitude: float | None = None
+    speed: float | None = Field(default=None, ge=0)
+    recordedAt: datetime
+
+
+class LocationPointsRequest(BaseModel):
+    points: list[LocationPointRequest] = Field(min_length=1, max_length=200)
+
+
 class TrackSegmentResponse(BaseModel):
     id: int
     title: str
@@ -84,6 +102,32 @@ class TrackSegmentResponse(BaseModel):
     createdAt: datetime
     updatedAt: datetime
     points: list[TrackPointResponse]
+
+
+class LocationSessionResponse(BaseModel):
+    id: int
+    segmentId: int
+    status: str
+    startedAt: datetime
+    endedAt: datetime | None
+    createdAt: datetime
+    updatedAt: datetime
+    segment: TrackSegmentResponse
+
+
+class TrainStationResponse(BaseModel):
+    sequence: int
+    name: str
+    arriveTime: str | None
+    startTime: str | None
+    arriveDayDiff: int
+
+
+class TrainStationsResponse(BaseModel):
+    trainCode: str
+    requestedDate: date
+    queryDate: date
+    stations: list[TrainStationResponse]
 
 
 def database_ready() -> bool:
@@ -186,6 +230,36 @@ def fetch_segment_with_points(segment_id: int, account_id: int) -> TrackSegmentR
             )
             points = cur.fetchall()
     return segment_response(segment, points)
+
+
+def location_session_response(session: dict, account_id: int) -> LocationSessionResponse:
+    return LocationSessionResponse(
+        id=session["id"],
+        segmentId=session["segment_id"],
+        status=session["status"],
+        startedAt=session["started_at"],
+        endedAt=session["ended_at"],
+        createdAt=session["created_at"],
+        updatedAt=session["updated_at"],
+        segment=fetch_segment_with_points(session["segment_id"], account_id),
+    )
+
+
+def fetch_location_session(session_id: int, account_id: int) -> dict:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select *
+                from location_sessions
+                where id = %s and account_id = %s
+                """,
+                (session_id, account_id),
+            )
+            session = cur.fetchone()
+    if not session:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "定位会话不存在")
+    return session
 
 
 def save_imported_segment(
@@ -364,6 +438,228 @@ def import_train(payload: TrainImportRequest, account: dict = Depends(get_curren
         imported,
         payload.model_dump(mode="json"),
     )
+
+
+@app.post("/api/import/train/stations", response_model=TrainStationsResponse)
+def train_stations(payload: TrainStationsRequest, _account: dict = Depends(get_current_account)):
+    try:
+        result = resolve_train_stations(payload.trainCode, payload.date)
+    except ImportFailure as error:
+        raise HTTPException(error.status_code, error.message)
+    return TrainStationsResponse(
+        trainCode=result.train_code,
+        requestedDate=result.requested_date,
+        queryDate=result.query_date,
+        stations=[
+            TrainStationResponse(
+                sequence=index,
+                name=row.get("station_name", ""),
+                arriveTime=row.get("arrive_time"),
+                startTime=row.get("start_time"),
+                arriveDayDiff=int(row.get("arrive_day_diff") or 0),
+            )
+            for index, row in enumerate(result.stations)
+        ],
+    )
+
+
+@app.post("/api/location-sessions", response_model=LocationSessionResponse)
+def create_location_session(account: dict = Depends(get_current_account)):
+    now = datetime.now(timezone.utc)
+    title = f"GPS {now.astimezone().strftime('%Y/%m/%d %H:%M')}"
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into track_segments (
+                    account_id, title, source_type, transport_type,
+                    started_at, summary, is_approximate, metadata
+                )
+                values (%s, %s, 'gps', 'walk', %s, 'GPS 记录中', false, '{}'::jsonb)
+                returning *
+                """,
+                (account["id"], title, now),
+            )
+            segment = cur.fetchone()
+            cur.execute(
+                """
+                insert into location_sessions (account_id, segment_id, status, started_at)
+                values (%s, %s, 'active', %s)
+                returning *
+                """,
+                (account["id"], segment["id"], now),
+            )
+            session = cur.fetchone()
+        conn.commit()
+    return location_session_response(session, account["id"])
+
+
+@app.post("/api/location-sessions/{session_id}/points", response_model=LocationSessionResponse)
+def append_location_points(
+    session_id: int,
+    payload: LocationPointsRequest,
+    account: dict = Depends(get_current_account),
+):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select *
+                from location_sessions
+                where id = %s and account_id = %s
+                for update
+                """,
+                (session_id, account["id"]),
+            )
+            session = cur.fetchone()
+            if not session:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "定位会话不存在")
+            if session["status"] != "active":
+                raise HTTPException(status.HTTP_409_CONFLICT, "定位会话未处于记录状态")
+
+            cur.execute(
+                """
+                select coalesce(max(sequence), -1)
+                from track_points
+                where segment_id = %s
+                """,
+                (session["segment_id"],),
+            )
+            next_sequence = cur.fetchone()["coalesce"] + 1
+
+            for offset, point in enumerate(payload.points):
+                cur.execute(
+                    """
+                    insert into track_points (
+                        segment_id, sequence, lat, lng, altitude, speed, recorded_at, raw
+                    )
+                    values (%s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        session["segment_id"],
+                        next_sequence + offset,
+                        point.lat,
+                        point.lng,
+                        point.altitude,
+                        point.speed,
+                        point.recordedAt,
+                        Json({"source": "android_gps"}),
+                    ),
+                )
+
+            cur.execute(
+                """
+                update track_segments
+                set updated_at = now()
+                where id = %s
+                """,
+                (session["segment_id"],),
+            )
+            cur.execute(
+                """
+                update location_sessions
+                set updated_at = now()
+                where id = %s
+                returning *
+                """,
+                (session_id,),
+            )
+            updated = cur.fetchone()
+        conn.commit()
+    return location_session_response(updated, account["id"])
+
+
+@app.patch("/api/location-sessions/{session_id}/pause", response_model=LocationSessionResponse)
+def pause_location_session(session_id: int, account: dict = Depends(get_current_account)):
+    session = update_location_session_status(session_id, account["id"], "active", "paused")
+    return location_session_response(session, account["id"])
+
+
+@app.patch("/api/location-sessions/{session_id}/resume", response_model=LocationSessionResponse)
+def resume_location_session(session_id: int, account: dict = Depends(get_current_account)):
+    session = update_location_session_status(session_id, account["id"], "paused", "active")
+    return location_session_response(session, account["id"])
+
+
+@app.patch("/api/location-sessions/{session_id}/finish", response_model=LocationSessionResponse)
+def finish_location_session(session_id: int, account: dict = Depends(get_current_account)):
+    session = fetch_location_session(session_id, account["id"])
+    if session["status"] == "finished":
+        return location_session_response(session, account["id"])
+
+    ended_at = datetime.now(timezone.utc)
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select count(*) as point_count
+                from track_points
+                where segment_id = %s
+                """,
+                (session["segment_id"],),
+            )
+            point_count = cur.fetchone()["point_count"]
+            cur.execute(
+                """
+                update track_segments
+                set ended_at = %s,
+                    summary = %s,
+                    updated_at = now(),
+                    version = version + 1
+                where id = %s
+                """,
+                (ended_at, f"GPS 记录完成，共 {point_count} 个定位点", session["segment_id"]),
+            )
+            cur.execute(
+                """
+                update location_sessions
+                set status = 'finished',
+                    ended_at = %s,
+                    updated_at = now()
+                where id = %s and account_id = %s
+                returning *
+                """,
+                (ended_at, session_id, account["id"]),
+            )
+            updated = cur.fetchone()
+        conn.commit()
+    return location_session_response(updated, account["id"])
+
+
+def update_location_session_status(
+    session_id: int,
+    account_id: int,
+    expected_status: str,
+    next_status: str,
+) -> dict:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                update location_sessions
+                set status = %s,
+                    updated_at = now()
+                where id = %s and account_id = %s and status = %s
+                returning *
+                """,
+                (next_status, session_id, account_id, expected_status),
+            )
+            session = cur.fetchone()
+            if not session:
+                cur.execute(
+                    """
+                    select status
+                    from location_sessions
+                    where id = %s and account_id = %s
+                    """,
+                    (session_id, account_id),
+                )
+                current = cur.fetchone()
+                if not current:
+                    raise HTTPException(status.HTTP_404_NOT_FOUND, "定位会话不存在")
+                raise HTTPException(status.HTTP_409_CONFLICT, "定位会话状态不允许该操作")
+        conn.commit()
+    return session
 
 
 @app.get("/api/segments", response_model=list[TrackSegmentResponse])

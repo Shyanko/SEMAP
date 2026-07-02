@@ -1,6 +1,7 @@
 package com.semap.app
 
 import android.app.Application
+import androidx.core.content.ContextCompat
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -21,6 +22,18 @@ class SemapViewModel(application: Application) : AndroidViewModel(application) {
 
     var state by mutableStateOf(SemapUiState())
         private set
+
+    init {
+        viewModelScope.launch {
+            GpsRecorderStore.state.collect { recorder ->
+                state = state.copy(
+                    gpsRecorder = recorder,
+                    segments = recorder.segment?.let { mergeSegment(state.segments, it) } ?: state.segments,
+                    selectedSegmentId = recorder.segment?.id ?: state.selectedSegmentId,
+                )
+            }
+        }
+    }
 
     fun restoreSession() {
         viewModelScope.launch {
@@ -100,6 +113,10 @@ class SemapViewModel(application: Application) : AndroidViewModel(application) {
         state = state.copy(view = AppView.TrainImport)
     }
 
+    fun showGpsRecord() {
+        state = state.copy(view = AppView.GpsRecord)
+    }
+
     fun importFlight(flightNumber: String, date: String) {
         val token = state.token ?: return
         viewModelScope.launch {
@@ -156,11 +173,54 @@ class SemapViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun lookupTrainStations(trainCode: String, date: String) {
+        val token = state.token ?: return
+        viewModelScope.launch {
+            state = state.copy(busy = true, error = null)
+            runCatching {
+                api.trainStations(
+                    "Bearer $token",
+                    TrainStationsRequest(trainCode, date),
+                )
+            }.onSuccess {
+                state = state.copy(busy = false, trainStationLookup = it, error = null)
+            }.onFailure {
+                state = state.copy(busy = false, error = errorMessage(it, "车站查询失败"))
+            }
+        }
+    }
+
     fun logout() {
         viewModelScope.launch {
             clearToken()
             state = SemapUiState(booting = false)
         }
+    }
+
+    fun startGpsRecording() {
+        val token = state.token ?: return
+        state = state.copy(view = AppView.GpsRecord, error = null)
+        ContextCompat.startForegroundService(
+            getApplication(),
+            GpsRecordingService.startIntent(getApplication(), token),
+        )
+    }
+
+    fun pauseGpsRecording() {
+        sendGpsCommand { GpsRecordingService.pauseIntent(getApplication(), it) }
+    }
+
+    fun resumeGpsRecording() {
+        sendGpsCommand { GpsRecordingService.resumeIntent(getApplication(), it) }
+    }
+
+    fun finishGpsRecording() {
+        sendGpsCommand { GpsRecordingService.finishIntent(getApplication(), it) }
+    }
+
+    private fun sendGpsCommand(intent: (String) -> android.content.Intent) {
+        val token = state.token ?: return
+        getApplication<Application>().startService(intent(token))
     }
 
     private fun submitAuth(request: suspend () -> LoginResponse) {
@@ -201,6 +261,10 @@ class SemapViewModel(application: Application) : AndroidViewModel(application) {
         }
         return error.message ?: fallback
     }
+
+    private fun mergeSegment(segments: List<TrackSegment>, segment: TrackSegment): List<TrackSegment> {
+        return listOf(segment) + segments.filterNot { it.id == segment.id }
+    }
 }
 
 data class SemapUiState(
@@ -212,6 +276,8 @@ data class SemapUiState(
     val selectedSegmentId: Int? = null,
     val view: AppView = AppView.Map,
     val error: String? = null,
+    val gpsRecorder: GpsRecorderState = GpsRecorderState(),
+    val trainStationLookup: TrainStationsResponse? = null,
 )
 
 enum class AppView {
@@ -219,4 +285,5 @@ enum class AppView {
     List,
     FlightImport,
     TrainImport,
+    GpsRecord,
 }

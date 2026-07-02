@@ -1,5 +1,6 @@
 plugins {
     id("com.android.application")
+    id("com.google.devtools.ksp")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
 }
@@ -35,7 +36,7 @@ android {
         buildConfigField(
             "String",
             "SEMAP_API_BASE_URL",
-            "\"${providers.gradleProperty("SEMAP_API_BASE_URL").orElse("http://10.0.2.2/api/").get()}\"",
+            "\"${providers.gradleProperty("SEMAP_API_BASE_URL").orElse("https://semap.xyz/api/").get()}\"",
         )
         buildConfigField("Boolean", "GOOGLE_MAPS_CONFIGURED", googleMapsApiKey.isNotBlank().toString())
         manifestPlaceholders["googleMapsApiKey"] = googleMapsApiKey
@@ -53,12 +54,16 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.core:core-ktx:1.18.0")
     implementation("androidx.datastore:datastore-preferences:1.2.1")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
+    implementation("androidx.room:room-ktx:2.8.4")
+    implementation("androidx.room:room-runtime:2.8.4")
     implementation("io.coil-kt.coil3:coil-compose:3.4.0")
     implementation("com.google.maps.android:maps-compose:8.3.0")
     implementation("com.squareup.okhttp3:okhttp:5.4.0")
     implementation("com.squareup.retrofit2:retrofit:3.0.0")
     implementation("com.squareup.retrofit2:converter-kotlinx-serialization:3.0.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+    ksp("androidx.room:room-compiler:2.8.4")
 }

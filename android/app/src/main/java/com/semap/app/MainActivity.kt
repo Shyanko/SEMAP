@@ -1,9 +1,15 @@
 package com.semap.app
 
+import android.Manifest
 import android.os.Bundle
+import android.os.Build
+import android.content.pm.PackageManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -41,9 +47,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import coil3.compose.AsyncImage
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.CameraPosition
@@ -118,8 +127,14 @@ private fun SemapApp(viewModel: SemapViewModel) {
                 onShowList = viewModel::showList,
                 onShowFlightImport = viewModel::showFlightImport,
                 onShowTrainImport = viewModel::showTrainImport,
+                onShowGpsRecord = viewModel::showGpsRecord,
                 onImportFlight = viewModel::importFlight,
+                onLookupTrainStations = viewModel::lookupTrainStations,
                 onImportTrain = viewModel::importTrain,
+                onStartGps = viewModel::startGpsRecording,
+                onPauseGps = viewModel::pauseGpsRecording,
+                onResumeGps = viewModel::resumeGpsRecording,
+                onFinishGps = viewModel::finishGpsRecording,
             )
         }
     }
@@ -199,8 +214,14 @@ private fun MainScreen(
     onShowList: () -> Unit,
     onShowFlightImport: () -> Unit,
     onShowTrainImport: () -> Unit,
+    onShowGpsRecord: () -> Unit,
     onImportFlight: (String, String) -> Unit,
+    onLookupTrainStations: (String, String) -> Unit,
     onImportTrain: (String, String, String, String) -> Unit,
+    onStartGps: () -> Unit,
+    onPauseGps: () -> Unit,
+    onResumeGps: () -> Unit,
+    onFinishGps: () -> Unit,
 ) {
     val selectedSegment = state.segments.firstOrNull { it.id == state.selectedSegmentId }
     val title = when (state.view) {
@@ -208,6 +229,7 @@ private fun MainScreen(
         AppView.List -> "轨迹列表"
         AppView.FlightImport -> "航班导入"
         AppView.TrainImport -> "火车导入"
+        AppView.GpsRecord -> "GPS 记录"
     }
 
     Column(
@@ -248,6 +270,7 @@ private fun MainScreen(
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 ModeButton("航班", state.view == AppView.FlightImport, onShowFlightImport)
                 ModeButton("火车", state.view == AppView.TrainImport, onShowTrainImport)
+                ModeButton("GPS", state.view == AppView.GpsRecord, onShowGpsRecord)
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -277,7 +300,16 @@ private fun MainScreen(
                 )
                 AppView.TrainImport -> TrainImportScreen(
                     busy = state.busy,
+                    lookup = state.trainStationLookup,
+                    onLookup = onLookupTrainStations,
                     onImport = onImportTrain,
+                )
+                AppView.GpsRecord -> GpsRecordScreen(
+                    recorder = state.gpsRecorder,
+                    onStart = onStartGps,
+                    onPause = onPauseGps,
+                    onResume = onResumeGps,
+                    onFinish = onFinishGps,
                 )
             }
         }
@@ -458,19 +490,31 @@ private fun FlightImportScreen(
 @Composable
 private fun TrainImportScreen(
     busy: Boolean,
+    lookup: TrainStationsResponse?,
+    onLookup: (String, String) -> Unit,
     onImport: (String, String, String, String) -> Unit,
 ) {
     var trainCode by remember { mutableStateOf("") }
     var date by remember { mutableStateOf(LocalDate.now().toString()) }
     var fromStation by remember { mutableStateOf("") }
     var toStation by remember { mutableStateOf("") }
+    val stations = if (lookup?.trainCode == trainCode && lookup.requestedDate == date) {
+        lookup.stations
+    } else {
+        emptyList()
+    }
+    val fromIndex = stations.indexOfFirst { it.name == fromStation }
 
     Panel {
         Text("12306 指定日期", color = Muted, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(12.dp))
         OutlinedTextField(
             value = trainCode,
-            onValueChange = { trainCode = it.uppercase() },
+            onValueChange = {
+                trainCode = it.uppercase()
+                fromStation = ""
+                toStation = ""
+            },
             label = { Text("车次号") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
@@ -478,36 +522,168 @@ private fun TrainImportScreen(
         Spacer(Modifier.height(10.dp))
         OutlinedTextField(
             value = date,
-            onValueChange = { date = it },
+            onValueChange = {
+                date = it
+                fromStation = ""
+                toStation = ""
+            },
             label = { Text("日期 YYYY-MM-DD") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
         )
-        Spacer(Modifier.height(10.dp))
-        OutlinedTextField(
-            value = fromStation,
-            onValueChange = { fromStation = it },
-            label = { Text("乘车起点") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-        )
-        Spacer(Modifier.height(10.dp))
-        OutlinedTextField(
-            value = toStation,
-            onValueChange = { toStation = it },
-            label = { Text("乘车终点") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-        )
+        if (stations.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "出发站：${fromStation.ifBlank { "未选择" }}",
+                color = Muted,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                "到达站：${toStation.ifBlank { "未选择" }}",
+                color = Muted,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(10.dp))
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(220.dp)
+                    .border(1.dp, Border, RoundedCornerShape(8.dp))
+                    .padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(stations, key = { it.sequence }) { station ->
+                    val index = stations.indexOf(station)
+                    val selected = station.name == fromStation || station.name == toStation
+                    OutlinedButton(
+                        enabled = fromStation.isBlank() || index > fromIndex || station.name == fromStation,
+                        onClick = {
+                            if (fromStation.isBlank() || station.name == fromStation || index <= fromIndex) {
+                                fromStation = station.name
+                                toStation = ""
+                            } else {
+                                toStation = station.name
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (selected) Page else Color.White,
+                            contentColor = if (selected) Brand else TextPrimary,
+                        ),
+                    ) {
+                        Text("${station.name} ${stationTimeLabel(station)}")
+                    }
+                }
+            }
+        }
         Spacer(Modifier.height(10.dp))
         Button(
             enabled = !busy && trainCode.isNotBlank() && date.isNotBlank() &&
-                fromStation.isNotBlank() && toStation.isNotBlank(),
-            onClick = { onImport(trainCode, date, fromStation, toStation) },
+                (stations.isEmpty() || fromStation.isNotBlank() && toStation.isNotBlank()),
+            onClick = {
+                if (stations.isEmpty()) {
+                    onLookup(trainCode, date)
+                } else {
+                    onImport(trainCode, date, fromStation, toStation)
+                }
+            },
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(containerColor = Brand),
         ) {
-            Text(if (busy) "导入中" else "导入轨迹")
+            Text(if (busy) "处理中" else if (stations.isEmpty()) "查询站点" else "导入轨迹")
+        }
+    }
+}
+
+@Composable
+private fun GpsRecordScreen(
+    recorder: GpsRecorderState,
+    onStart: () -> Unit,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
+    onFinish: () -> Unit,
+) {
+    val context = LocalContext.current
+    var permissionError by remember { mutableStateOf<String?>(null) }
+    val permissions = remember {
+        buildList {
+            add(Manifest.permission.ACCESS_FINE_LOCATION)
+            add(Manifest.permission.ACCESS_COARSE_LOCATION)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }.toTypedArray()
+    }
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { result ->
+        if (hasLocationPermission(context)) {
+            permissionError = null
+            onStart()
+        } else {
+            permissionError = "需要定位权限才能开始记录"
+        }
+    }
+
+    Panel {
+        Text("GPS 轨迹记录", fontWeight = FontWeight.Bold, color = TextPrimary)
+        Spacer(Modifier.height(8.dp))
+        Text("状态：${gpsStatusText(recorder.status)}", color = Muted, fontWeight = FontWeight.SemiBold)
+        Text("待上传点：${recorder.pendingCount}", color = Muted, fontWeight = FontWeight.SemiBold)
+        if (recorder.segment != null) {
+            Spacer(Modifier.height(8.dp))
+            Text(recorder.segment.title, color = TextPrimary, fontWeight = FontWeight.Bold)
+            Text("已上传点：${recorder.segment.points.size}", color = Muted, fontWeight = FontWeight.SemiBold)
+        }
+        val error = permissionError ?: recorder.error
+        if (error != null) {
+            Spacer(Modifier.height(8.dp))
+            Text(error, color = Danger, fontWeight = FontWeight.SemiBold)
+        }
+        Spacer(Modifier.height(16.dp))
+        when (recorder.status) {
+            "active" -> Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedButton(onClick = onPause, modifier = Modifier.weight(1f)) {
+                    Text("暂停")
+                }
+                Button(
+                    onClick = onFinish,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Danger),
+                ) {
+                    Text("结束")
+                }
+            }
+            "paused" -> Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = onResume,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Brand),
+                ) {
+                    Text("继续")
+                }
+                Button(
+                    onClick = onFinish,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Danger),
+                ) {
+                    Text("结束")
+                }
+            }
+            else -> Button(
+                onClick = {
+                    if (hasLocationPermission(context)) {
+                        permissionError = null
+                        onStart()
+                    } else {
+                        launcher.launch(permissions)
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Brand),
+            ) {
+                Text("开始记录")
+            }
         }
     }
 }
@@ -632,8 +808,18 @@ private fun SegmentMetadata(segment: TrackSegment) {
 
 @Composable
 private fun BrandHeader() {
-    Text("SEMAP", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold)
-    Text("移动轨迹记录与地图展示", color = Muted)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Image(
+            painter = painterResource(R.drawable.semap_logo),
+            contentDescription = null,
+            modifier = Modifier.size(44.dp),
+        )
+        Spacer(Modifier.width(10.dp))
+        Column {
+            Text("SEMAP", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold)
+            Text("移动轨迹记录与地图展示", color = Muted)
+        }
+    }
 }
 
 @Composable
@@ -723,6 +909,11 @@ private fun trainStationName(value: String?): String? {
     return if (value.endsWith("站")) value else "${value}站"
 }
 
+private fun stationTimeLabel(station: TrainStationOption): String {
+    val time = station.startTime?.takeIf { it != "----" } ?: station.arriveTime?.takeIf { it != "----" }
+    return time ?: ""
+}
+
 private fun segmentStartPlace(segment: TrackSegment): String? {
     if (segment.sourceType == "train") {
         return trainStationName(segment.points.firstOrNull()?.name)
@@ -759,6 +950,20 @@ private fun formatDateTime(value: String?): String {
     return OffsetDateTime.parse(value.replace("Z", "+00:00"))
         .atZoneSameInstant(ChinaZone)
         .format(DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm"))
+}
+
+private fun hasLocationPermission(context: android.content.Context): Boolean {
+    return ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+        PackageManager.PERMISSION_GRANTED ||
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+        PackageManager.PERMISSION_GRANTED
+}
+
+private fun gpsStatusText(status: String) = when (status) {
+    "active" -> "记录中"
+    "paused" -> "已暂停"
+    "finished" -> "已结束"
+    else -> "未开始"
 }
 
 private fun sourceLabel(sourceType: String) = when (sourceType) {

@@ -49,6 +49,14 @@ class ImportedSegment:
     response_payload: dict[str, Any]
 
 
+@dataclass
+class TrainStations:
+    train_code: str
+    requested_date: date
+    query_date: date
+    stations: list[dict[str, Any]]
+
+
 def parse_fr24_token(value: str) -> str:
     lines = [line.strip() for line in value.splitlines() if line.strip()]
     for index, line in enumerate(lines[:-1]):
@@ -506,6 +514,29 @@ def resolve_train_import(
         points=points,
         response_payload={"search": match, "stations": rows, "selectedStations": selected_rows},
     )
+
+
+def resolve_train_stations(train_code: str, travel_date: date) -> TrainStations:
+    code = train_code.strip().upper()
+    if not code:
+        raise ImportFailure("请输入车次号", 400)
+
+    query_failures: list[str] = []
+    with httpx.Client(timeout=30, trust_env=False, headers={"User-Agent": "Mozilla/5.0"}) as client:
+        for query_date in train_query_dates(travel_date):
+            _match, rows, failure = fetch_train_rows(client, code, query_date)
+            if rows:
+                return TrainStations(
+                    train_code=code,
+                    requested_date=travel_date,
+                    query_date=query_date,
+                    stations=rows,
+                )
+            if failure:
+                query_failures.append(failure)
+
+    detail = "；".join(query_failures)
+    raise ImportFailure(f"未找到可用车次：{detail}", 404)
 
 
 def train_station_time(

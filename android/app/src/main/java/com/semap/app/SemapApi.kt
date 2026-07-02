@@ -9,6 +9,8 @@ import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Header
+import retrofit2.http.PATCH
+import retrofit2.http.Path
 import retrofit2.http.POST
 
 interface SemapApi {
@@ -35,6 +37,42 @@ interface SemapApi {
         @Header("Authorization") authorization: String,
         @Body request: TrainImportRequest,
     ): TrackSegment
+
+    @POST("import/train/stations")
+    suspend fun trainStations(
+        @Header("Authorization") authorization: String,
+        @Body request: TrainStationsRequest,
+    ): TrainStationsResponse
+
+    @POST("location-sessions")
+    suspend fun createLocationSession(
+        @Header("Authorization") authorization: String,
+    ): LocationSessionResponse
+
+    @POST("location-sessions/{sessionId}/points")
+    suspend fun uploadLocationPoints(
+        @Header("Authorization") authorization: String,
+        @Path("sessionId") sessionId: Int,
+        @Body request: LocationPointsRequest,
+    ): LocationSessionResponse
+
+    @PATCH("location-sessions/{sessionId}/pause")
+    suspend fun pauseLocationSession(
+        @Header("Authorization") authorization: String,
+        @Path("sessionId") sessionId: Int,
+    ): LocationSessionResponse
+
+    @PATCH("location-sessions/{sessionId}/resume")
+    suspend fun resumeLocationSession(
+        @Header("Authorization") authorization: String,
+        @Path("sessionId") sessionId: Int,
+    ): LocationSessionResponse
+
+    @PATCH("location-sessions/{sessionId}/finish")
+    suspend fun finishLocationSession(
+        @Header("Authorization") authorization: String,
+        @Path("sessionId") sessionId: Int,
+    ): LocationSessionResponse
 }
 
 object SemapApiClient {
@@ -79,6 +117,55 @@ data class TrainImportRequest(
     val date: String,
     val fromStation: String,
     val toStation: String,
+)
+
+@Serializable
+data class TrainStationsRequest(
+    val trainCode: String,
+    val date: String,
+)
+
+@Serializable
+data class TrainStationsResponse(
+    val trainCode: String,
+    val requestedDate: String,
+    val queryDate: String,
+    val stations: List<TrainStationOption>,
+)
+
+@Serializable
+data class TrainStationOption(
+    val sequence: Int,
+    val name: String,
+    val arriveTime: String? = null,
+    val startTime: String? = null,
+    val arriveDayDiff: Int = 0,
+)
+
+@Serializable
+data class LocationPointRequest(
+    val lat: Double,
+    val lng: Double,
+    val altitude: Double? = null,
+    val speed: Double? = null,
+    val recordedAt: String,
+)
+
+@Serializable
+data class LocationPointsRequest(
+    val points: List<LocationPointRequest>,
+)
+
+@Serializable
+data class LocationSessionResponse(
+    val id: Int,
+    val segmentId: Int,
+    val status: String,
+    val startedAt: String,
+    val endedAt: String? = null,
+    val createdAt: String,
+    val updatedAt: String,
+    val segment: TrackSegment,
 )
 
 @Serializable

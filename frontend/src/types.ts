@@ -49,5 +49,20 @@ export type TrackSegment = {
   points: TrackPoint[];
 };
 
+export type TrainStationOption = {
+  sequence: number;
+  name: string;
+  arriveTime: string | null;
+  startTime: string | null;
+  arriveDayDiff: number;
+};
+
+export type TrainStationsResponse = {
+  trainCode: string;
+  requestedDate: string;
+  queryDate: string;
+  stations: TrainStationOption[];
+};
+
 export type AuthMode = "login" | "register";
 export type WorkspaceView = "tracks" | "flight" | "train";
