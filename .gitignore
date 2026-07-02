@@ -12,3 +12,4 @@ local.properties
 *.aab
 __pycache__/
 *.pyc
+.pytest_cache/

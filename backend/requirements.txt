@@ -1,6 +1,9 @@
 fastapi==0.139.0
 httpx==0.28.1
+PyJWT==2.10.1
 psycopg[binary]==3.3.4
 pydantic-settings==2.14.2
+pytest==9.0.2
+pwdlib[argon2]==0.3.0
 python-dotenv==1.2.2
 uvicorn[standard]==0.49.0
