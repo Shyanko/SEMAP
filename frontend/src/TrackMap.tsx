@@ -147,12 +147,13 @@ export function TrackMap({
   return (
     <div className="mapFrame">
       <div className="googleMap" ref={containerRef} />
-      {!maps || error || segments.length === 0 ? (
+      {!maps || error ? (
         <div className="mapStatus">
           <Map size={38} />
-          <span>{error || (segments.length === 0 ? "暂无轨迹" : "地图加载中")}</span>
+          <span>{error || "地图加载中"}</span>
         </div>
       ) : null}
+      {maps && !error && segments.length === 0 ? <div className="mapEmptyHint">暂无轨迹</div> : null}
     </div>
   );
 }

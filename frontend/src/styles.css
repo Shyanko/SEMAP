@@ -371,6 +371,20 @@ label {
   font-weight: 800;
 }
 
+.mapEmptyHint {
+  position: absolute;
+  left: 16px;
+  top: 16px;
+  padding: 8px 11px;
+  border: 1px solid #d4dfdc;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #526572;
+  font-size: 13px;
+  font-weight: 800;
+  box-shadow: 0 8px 20px rgba(29, 39, 48, 0.12);
+}
+
 .mapMarker {
   width: 12px;
   height: 12px;

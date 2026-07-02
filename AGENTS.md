@@ -172,7 +172,7 @@ App 必须包含以下能力：
 - Web 前端：React + TypeScript + Vite。
 - 数据库：PostgreSQL 13。
 - 反向代理：Nginx。
-- Android 构建基础：Java 17 + Android SDK command line tools。
+- Android 构建基础：Java 17 + Android SDK command line tools + Gradle 9.6.1。
 - Node.js：用于后续文档工具或辅助脚本。
 
 已启用服务：
@@ -437,7 +437,7 @@ App 必须包含以下能力：
 
 ### 阶段 5：Web 地图展示
 
-状态：代码已接入，待有效 `VITE_GOOGLE_MAPS_API_KEY` 后完成真实地图瓦片验收。
+状态：已完成。
 
 交付内容：
 
@@ -453,6 +453,8 @@ App 必须包含以下能力：
 - 选中轨迹后地图高亮。
 
 ### 阶段 6：Android App 基础框架
+
+状态：已完成。
 
 交付内容：
 
