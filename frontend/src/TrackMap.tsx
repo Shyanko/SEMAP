@@ -116,7 +116,13 @@ export function TrackMap({
       line.addListener("click", () => onSelectSegment(segment.id));
       overlaysRef.current.push(line);
 
-      for (const point of segment.points) {
+      const markerPoints = segment.points.filter((point, index) => {
+        if (segment.sourceType === "train") {
+          return index === 0 || index === segment.points.length - 1;
+        }
+        return Boolean(point.name);
+      });
+      for (const point of markerPoints) {
         const markerElement = document.createElement("button");
         markerElement.className = selected ? "mapMarker selected" : "mapMarker";
         markerElement.type = "button";

@@ -17,6 +17,8 @@ import {
   fetchHealth,
   fetchMe,
   fetchSegments,
+  importFlight,
+  importTrain,
   login,
   register,
   updateSegment,
@@ -408,7 +410,15 @@ function Workspace({
             onSegmentsChange={onSegmentsChange}
           />
         ) : (
-          <ImportPanel source={view} />
+          <ImportPanel
+            source={view}
+            token={token}
+            onImported={(segment) => {
+              onSegmentsChange([segment, ...segments.filter((item) => item.id !== segment.id)]);
+              onSelectSegment(segment.id);
+              onViewChange("tracks");
+            }}
+          />
         )}
       </section>
     </main>
@@ -629,35 +639,104 @@ function SegmentEditor({
   );
 }
 
-function ImportPanel({ source }: { source: "flight" | "train" }) {
+function ImportPanel({
+  source,
+  token,
+  onImported,
+}: {
+  source: "flight" | "train";
+  token: string;
+  onImported: (segment: TrackSegment) => void;
+}) {
   const isFlight = source === "flight";
+  const [code, setCode] = React.useState("");
+  const [date, setDate] = React.useState(() => new Date().toISOString().slice(0, 10));
+  const [fromStation, setFromStation] = React.useState("");
+  const [toStation, setToStation] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState("");
+
+  React.useEffect(() => {
+    setCode("");
+    setFromStation("");
+    setToStation("");
+    setError("");
+  }, [source]);
+
   return (
     <section className="importSurface">
       <div className="importHeader">
         {isFlight ? <Plane size={24} /> : <Train size={24} />}
         <div>
           <h3>{isFlight ? "航班号导入" : "车次号导入"}</h3>
-          <p>{isFlight ? "FlightRadar24" : "12306 当前日期"}</p>
+          <p>{isFlight ? "FlightRadar24" : "12306 指定日期"}</p>
         </div>
       </div>
-      <form className="importForm">
+      <form
+        className="importForm"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          setBusy(true);
+          setError("");
+          try {
+            const segment = isFlight
+              ? await importFlight(token, {
+                  flightNumber: code,
+                  date,
+                })
+              : await importTrain(token, {
+                  trainCode: code,
+                  date,
+                  fromStation,
+                  toStation,
+                });
+            onImported(segment);
+          } catch (importError) {
+            setError(importError instanceof Error ? importError.message : "导入失败");
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
         <label>
           <span>{isFlight ? "航班号" : "车次号"}</span>
-          <input placeholder={isFlight ? "CA1234" : "G803"} />
+          <input
+            placeholder={isFlight ? "UA938" : "G803"}
+            value={code}
+            onChange={(event) => setCode(event.target.value.toUpperCase())}
+            required
+          />
         </label>
-        {isFlight ? (
-          <label>
-            <span>日期</span>
-            <input type="date" />
-          </label>
-        ) : null}
         <label>
-          <span>标题</span>
-          <input placeholder={isFlight ? "航班轨迹" : "火车轨迹"} />
+          <span>日期</span>
+          <input type="date" value={date} onChange={(event) => setDate(event.target.value)} required />
         </label>
-        <button className="secondaryButton" disabled type="button">
+        {!isFlight ? (
+          <div className="fieldGrid">
+            <label>
+              <span>乘车起点</span>
+              <input
+                placeholder="北京南"
+                value={fromStation}
+                onChange={(event) => setFromStation(event.target.value)}
+                required
+              />
+            </label>
+            <label>
+              <span>乘车终点</span>
+              <input
+                placeholder="上海虹桥"
+                value={toStation}
+                onChange={(event) => setToStation(event.target.value)}
+                required
+              />
+            </label>
+          </div>
+        ) : null}
+        {error ? <p className="formError">{error}</p> : null}
+        <button className="primaryButton" disabled={busy} type="submit">
           <CalendarClock size={16} />
-          等待后端接口
+          {busy ? "导入中" : "导入轨迹"}
         </button>
       </form>
     </section>

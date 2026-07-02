@@ -92,6 +92,70 @@ class SemapViewModel(application: Application) : AndroidViewModel(application) {
         state = state.copy(view = AppView.List)
     }
 
+    fun showFlightImport() {
+        state = state.copy(view = AppView.FlightImport)
+    }
+
+    fun showTrainImport() {
+        state = state.copy(view = AppView.TrainImport)
+    }
+
+    fun importFlight(flightNumber: String, date: String) {
+        val token = state.token ?: return
+        viewModelScope.launch {
+            state = state.copy(busy = true, error = null)
+            runCatching {
+                api.importFlight(
+                    "Bearer $token",
+                    FlightImportRequest(flightNumber, date),
+                )
+            }.onSuccess { segment ->
+                state = state.copy(
+                    busy = false,
+                    view = AppView.Map,
+                    segments = listOf(segment) + state.segments.filterNot { it.id == segment.id },
+                    selectedSegmentId = segment.id,
+                    error = null,
+                )
+            }.onFailure {
+                state = state.copy(busy = false, error = errorMessage(it, "航班导入失败"))
+            }
+        }
+    }
+
+    fun importTrain(
+        trainCode: String,
+        date: String,
+        fromStation: String,
+        toStation: String,
+    ) {
+        val token = state.token ?: return
+        viewModelScope.launch {
+            state = state.copy(busy = true, error = null)
+            runCatching {
+                api.importTrain(
+                    "Bearer $token",
+                    TrainImportRequest(
+                        trainCode,
+                        date,
+                        fromStation,
+                        toStation,
+                    ),
+                )
+            }.onSuccess { segment ->
+                state = state.copy(
+                    busy = false,
+                    view = AppView.Map,
+                    segments = listOf(segment) + state.segments.filterNot { it.id == segment.id },
+                    selectedSegmentId = segment.id,
+                    error = null,
+                )
+            }.onFailure {
+                state = state.copy(busy = false, error = errorMessage(it, "火车导入失败"))
+            }
+        }
+    }
+
     fun logout() {
         viewModelScope.launch {
             clearToken()
@@ -153,4 +217,6 @@ data class SemapUiState(
 enum class AppView {
     Map,
     List,
+    FlightImport,
+    TrainImport,
 }

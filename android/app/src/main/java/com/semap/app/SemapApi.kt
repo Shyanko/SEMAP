@@ -23,6 +23,18 @@ interface SemapApi {
 
     @GET("segments")
     suspend fun segments(@Header("Authorization") authorization: String): List<TrackSegment>
+
+    @POST("import/flight")
+    suspend fun importFlight(
+        @Header("Authorization") authorization: String,
+        @Body request: FlightImportRequest,
+    ): TrackSegment
+
+    @POST("import/train")
+    suspend fun importTrain(
+        @Header("Authorization") authorization: String,
+        @Body request: TrainImportRequest,
+    ): TrackSegment
 }
 
 object SemapApiClient {
@@ -53,6 +65,20 @@ data class LoginResponse(
     val accessToken: String,
     val tokenType: String,
     val account: Account,
+)
+
+@Serializable
+data class FlightImportRequest(
+    val flightNumber: String,
+    val date: String,
+)
+
+@Serializable
+data class TrainImportRequest(
+    val trainCode: String,
+    val date: String,
+    val fromStation: String,
+    val toStation: String,
 )
 
 @Serializable

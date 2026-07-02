@@ -1,12 +1,19 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 import psycopg
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from pydantic import BaseModel, Field
+from psycopg.types.json import Json
 
 from app.config import settings
 from app.db import get_connection
+from app.importers import (
+    ImportedSegment,
+    ImportFailure,
+    resolve_flight_import,
+    resolve_train_import,
+)
 from app.security import create_access_token, hash_password, read_account_id, verify_password
 
 app = FastAPI(title="SEMAP API")
@@ -49,6 +56,18 @@ class SegmentUpdateRequest(BaseModel):
     endedAt: datetime | None = None
     summary: str | None = None
     note: str | None = None
+
+
+class FlightImportRequest(BaseModel):
+    flightNumber: str = Field(min_length=2, max_length=16)
+    date: date
+
+
+class TrainImportRequest(BaseModel):
+    trainCode: str = Field(min_length=1, max_length=16)
+    date: date
+    fromStation: str = Field(min_length=1, max_length=64)
+    toStation: str = Field(min_length=1, max_length=64)
 
 
 class TrackSegmentResponse(BaseModel):
@@ -170,6 +189,92 @@ def fetch_segment_with_points(segment_id: int, account_id: int) -> TrackSegmentR
     return segment_response(segment, points)
 
 
+def save_imported_segment(
+    account_id: int,
+    imported: ImportedSegment,
+    request_payload: dict[str, Any],
+) -> TrackSegmentResponse:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into track_segments (
+                    account_id, title, source_type, transport_type, external_code,
+                    started_at, ended_at, summary, note, is_approximate
+                )
+                values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                returning *
+                """,
+                (
+                    account_id,
+                    imported.title,
+                    imported.source_type,
+                    imported.transport_type,
+                    imported.external_code,
+                    imported.started_at,
+                    imported.ended_at,
+                    imported.summary,
+                    imported.note,
+                    imported.is_approximate,
+                ),
+            )
+            segment = cur.fetchone()
+
+            for point in imported.points:
+                cur.execute(
+                    """
+                    insert into track_points (
+                        segment_id, sequence, lat, lng, altitude, speed,
+                        recorded_at, name, raw
+                    )
+                    values (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        segment["id"],
+                        point.sequence,
+                        point.lat,
+                        point.lng,
+                        point.altitude,
+                        point.speed,
+                        point.recorded_at,
+                        point.name,
+                        Json(point.raw) if point.raw is not None else None,
+                    ),
+                )
+
+            cur.execute(
+                """
+                insert into import_records (
+                    account_id, segment_id, source_type, external_code,
+                    request_payload, response_payload, status
+                )
+                values (%s, %s, %s, %s, %s, %s, 'success')
+                """,
+                (
+                    account_id,
+                    segment["id"],
+                    imported.source_type,
+                    imported.external_code,
+                    Json(request_payload),
+                    Json(imported.response_payload),
+                ),
+            )
+
+            cur.execute(
+                """
+                select *
+                from track_points
+                where segment_id = %s
+                order by sequence
+                """,
+                (segment["id"],),
+            )
+            points = cur.fetchall()
+        conn.commit()
+
+    return segment_response(segment, points)
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "database": "ok" if database_ready() else "error"}
@@ -229,6 +334,37 @@ def login(payload: AuthRequest):
 @app.get("/api/auth/me", response_model=AccountResponse)
 def me(account: dict = Depends(get_current_account)):
     return account_response(account)
+
+
+@app.post("/api/import/flight", response_model=TrackSegmentResponse)
+def import_flight(payload: FlightImportRequest, account: dict = Depends(get_current_account)):
+    try:
+        imported = resolve_flight_import(payload.flightNumber, payload.date)
+    except ImportFailure as error:
+        raise HTTPException(error.status_code, error.message)
+    return save_imported_segment(
+        account["id"],
+        imported,
+        payload.model_dump(mode="json"),
+    )
+
+
+@app.post("/api/import/train", response_model=TrackSegmentResponse)
+def import_train(payload: TrainImportRequest, account: dict = Depends(get_current_account)):
+    try:
+        imported = resolve_train_import(
+            payload.trainCode,
+            payload.date,
+            payload.fromStation,
+            payload.toStation,
+        )
+    except ImportFailure as error:
+        raise HTTPException(error.status_code, error.message)
+    return save_imported_segment(
+        account["id"],
+        imported,
+        payload.model_dump(mode="json"),
+    )
 
 
 @app.get("/api/segments", response_model=list[TrackSegmentResponse])

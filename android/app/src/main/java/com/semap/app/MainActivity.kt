@@ -53,6 +53,7 @@ import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.MarkerState
 import com.google.maps.android.compose.Polyline
 import com.google.maps.android.compose.rememberCameraPositionState
+import java.time.LocalDate
 
 private val DefaultCenter = LatLng(35.8617, 104.1954)
 
@@ -110,6 +111,10 @@ private fun SemapApp(viewModel: SemapViewModel) {
                 onSelectSegment = viewModel::selectSegment,
                 onShowMap = viewModel::showMap,
                 onShowList = viewModel::showList,
+                onShowFlightImport = viewModel::showFlightImport,
+                onShowTrainImport = viewModel::showTrainImport,
+                onImportFlight = viewModel::importFlight,
+                onImportTrain = viewModel::importTrain,
             )
         }
     }
@@ -187,8 +192,18 @@ private fun MainScreen(
     onSelectSegment: (Int) -> Unit,
     onShowMap: () -> Unit,
     onShowList: () -> Unit,
+    onShowFlightImport: () -> Unit,
+    onShowTrainImport: () -> Unit,
+    onImportFlight: (String, String) -> Unit,
+    onImportTrain: (String, String, String, String) -> Unit,
 ) {
     val selectedSegment = state.segments.firstOrNull { it.id == state.selectedSegmentId }
+    val title = when (state.view) {
+        AppView.Map -> "轨迹地图"
+        AppView.List -> "轨迹列表"
+        AppView.FlightImport -> "航班导入"
+        AppView.TrainImport -> "火车导入"
+    }
 
     Column(
         modifier = Modifier
@@ -202,7 +217,7 @@ private fun MainScreen(
         ) {
             Column {
                 Text(
-                    if (state.view == AppView.Map) "轨迹地图" else "轨迹列表",
+                    title,
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                 )
@@ -213,15 +228,21 @@ private fun MainScreen(
             }
         }
         Spacer(Modifier.height(14.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            ModeButton("地图", state.view == AppView.Map, onShowMap)
-            ModeButton("列表", state.view == AppView.List, onShowList)
-            Button(
-                enabled = !state.busy,
-                onClick = onRefresh,
-                colors = ButtonDefaults.buttonColors(containerColor = Brand),
-            ) {
-                Text("刷新")
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ModeButton("地图", state.view == AppView.Map, onShowMap)
+                ModeButton("列表", state.view == AppView.List, onShowList)
+                Button(
+                    enabled = !state.busy,
+                    onClick = onRefresh,
+                    colors = ButtonDefaults.buttonColors(containerColor = Brand),
+                ) {
+                    Text("刷新")
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ModeButton("航班", state.view == AppView.FlightImport, onShowFlightImport)
+                ModeButton("火车", state.view == AppView.TrainImport, onShowTrainImport)
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -233,18 +254,27 @@ private fun MainScreen(
         Spacer(Modifier.height(14.dp))
         if (state.busy && state.segments.isEmpty()) {
             CenterStatus("正在同步轨迹")
-        } else if (state.view == AppView.Map) {
-            TrackMapScreen(
-                segments = state.segments,
-                selectedSegment = selectedSegment,
-                onSelectSegment = onSelectSegment,
-            )
         } else {
-            TrackList(
-                segments = state.segments,
-                selectedSegment = selectedSegment,
-                onSelectSegment = onSelectSegment,
-            )
+            when (state.view) {
+                AppView.Map -> TrackMapScreen(
+                    segments = state.segments,
+                    selectedSegment = selectedSegment,
+                    onSelectSegment = onSelectSegment,
+                )
+                AppView.List -> TrackList(
+                    segments = state.segments,
+                    selectedSegment = selectedSegment,
+                    onSelectSegment = onSelectSegment,
+                )
+                AppView.FlightImport -> FlightImportScreen(
+                    busy = state.busy,
+                    onImport = onImportFlight,
+                )
+                AppView.TrainImport -> TrainImportScreen(
+                    busy = state.busy,
+                    onImport = onImportTrain,
+                )
+            }
         }
     }
 }
@@ -341,7 +371,10 @@ private fun SegmentMap(
                     onClick = { onSelectSegment(segment.id) },
                 )
             }
-            for (point in segment.points) {
+            for ((index, point) in segment.points.withIndex()) {
+                if (!shouldShowMarker(segment, index, point)) {
+                    continue
+                }
                 Marker(
                     state = MarkerState(position = LatLng(point.lat, point.lng)),
                     title = segment.title,
@@ -375,6 +408,101 @@ private fun TrackList(
                 selected = selectedSegment?.id == segment.id,
                 onClick = { onSelectSegment(segment.id) },
             )
+        }
+    }
+}
+
+@Composable
+private fun FlightImportScreen(
+    busy: Boolean,
+    onImport: (String, String) -> Unit,
+) {
+    var flightNumber by remember { mutableStateOf("") }
+    var date by remember { mutableStateOf(LocalDate.now().toString()) }
+
+    Panel {
+        Text("FlightRadar24", color = Muted, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(12.dp))
+        OutlinedTextField(
+            value = flightNumber,
+            onValueChange = { flightNumber = it.uppercase() },
+            label = { Text("航班号") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+        )
+        Spacer(Modifier.height(10.dp))
+        OutlinedTextField(
+            value = date,
+            onValueChange = { date = it },
+            label = { Text("日期 YYYY-MM-DD") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+        )
+        Spacer(Modifier.height(10.dp))
+        Button(
+            enabled = !busy && flightNumber.isNotBlank() && date.isNotBlank(),
+            onClick = { onImport(flightNumber, date) },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = Brand),
+        ) {
+            Text(if (busy) "导入中" else "导入轨迹")
+        }
+    }
+}
+
+@Composable
+private fun TrainImportScreen(
+    busy: Boolean,
+    onImport: (String, String, String, String) -> Unit,
+) {
+    var trainCode by remember { mutableStateOf("") }
+    var date by remember { mutableStateOf(LocalDate.now().toString()) }
+    var fromStation by remember { mutableStateOf("") }
+    var toStation by remember { mutableStateOf("") }
+
+    Panel {
+        Text("12306 指定日期", color = Muted, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(12.dp))
+        OutlinedTextField(
+            value = trainCode,
+            onValueChange = { trainCode = it.uppercase() },
+            label = { Text("车次号") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+        )
+        Spacer(Modifier.height(10.dp))
+        OutlinedTextField(
+            value = date,
+            onValueChange = { date = it },
+            label = { Text("日期 YYYY-MM-DD") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+        )
+        Spacer(Modifier.height(10.dp))
+        OutlinedTextField(
+            value = fromStation,
+            onValueChange = { fromStation = it },
+            label = { Text("乘车起点") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+        )
+        Spacer(Modifier.height(10.dp))
+        OutlinedTextField(
+            value = toStation,
+            onValueChange = { toStation = it },
+            label = { Text("乘车终点") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+        )
+        Spacer(Modifier.height(10.dp))
+        Button(
+            enabled = !busy && trainCode.isNotBlank() && date.isNotBlank() &&
+                fromStation.isNotBlank() && toStation.isNotBlank(),
+            onClick = { onImport(trainCode, date, fromStation, toStation) },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = Brand),
+        ) {
+            Text(if (busy) "导入中" else "导入轨迹")
         }
     }
 }
@@ -493,6 +621,13 @@ private fun CenterStatus(text: String) {
 private fun visiblePoints(selectedSegment: TrackSegment?, segments: List<TrackSegment>): List<LatLng> {
     val source = if (selectedSegment?.points?.isNotEmpty() == true) listOf(selectedSegment) else segments
     return source.flatMap { segment -> segment.points.map { LatLng(it.lat, it.lng) } }
+}
+
+private fun shouldShowMarker(segment: TrackSegment, index: Int, point: TrackPoint): Boolean {
+    if (segment.sourceType == "train") {
+        return index == 0 || index == segment.points.lastIndex
+    }
+    return point.name != null
 }
 
 private fun sourceLabel(sourceType: String) = when (sourceType) {

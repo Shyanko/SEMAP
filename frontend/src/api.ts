@@ -67,6 +67,33 @@ export function fetchSegments(token: string): Promise<TrackSegment[]> {
   return apiRequest("/segments", { token });
 }
 
+export function importFlight(
+  token: string,
+  body: { flightNumber: string; date: string },
+): Promise<TrackSegment> {
+  return apiRequest("/import/flight", {
+    method: "POST",
+    token,
+    body,
+  });
+}
+
+export function importTrain(
+  token: string,
+  body: {
+    trainCode: string;
+    date: string;
+    fromStation: string;
+    toStation: string;
+  },
+): Promise<TrackSegment> {
+  return apiRequest("/import/train", {
+    method: "POST",
+    token,
+    body,
+  });
+}
+
 export function updateSegment(
   token: string,
   segmentId: number,
