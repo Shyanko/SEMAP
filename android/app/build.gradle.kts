@@ -65,8 +65,8 @@ android {
         applicationId = "com.semap.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 102
-        versionName = "1.2"
+        versionCode = 103
+        versionName = "1.3"
         buildConfigField(
             "String",
             "SEMAP_API_BASE_URL",

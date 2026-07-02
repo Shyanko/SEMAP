@@ -368,62 +368,47 @@ private fun TrackMapScreen(
             if (BuildConfig.GOOGLE_MAPS_CONFIGURED) MapProvider.Google else MapProvider.Amap,
         )
     }
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .border(1.dp, Border, RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color.White),
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(360.dp)
-                .border(1.dp, Border, RoundedCornerShape(8.dp))
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color.White),
-        ) {
-            when (mapProvider) {
-                MapProvider.Google -> {
-                    if (BuildConfig.GOOGLE_MAPS_CONFIGURED) {
-                        GoogleSegmentMap(
-                            segments = segments,
-                            selectedSegment = selectedSegment,
-                            onSelectSegment = onSelectSegment,
-                        )
-                    } else {
-                        EmptyPanel("缺少 GOOGLE_MAPS_API_KEY")
-                    }
-                }
-                MapProvider.Amap -> {
-                    if (BuildConfig.AMAP_MAPS_CONFIGURED) {
-                        AmapSegmentMap(
-                            segments = segments,
-                            selectedSegment = selectedSegment,
-                            onSelectSegment = onSelectSegment,
-                        )
-                    } else {
-                        EmptyPanel("缺少 AMAP_ANDROID_API_KEY")
-                    }
+        when (mapProvider) {
+            MapProvider.Google -> {
+                if (BuildConfig.GOOGLE_MAPS_CONFIGURED) {
+                    GoogleSegmentMap(
+                        segments = segments,
+                        selectedSegment = selectedSegment,
+                        onSelectSegment = onSelectSegment,
+                    )
+                } else {
+                    EmptyPanel("缺少 GOOGLE_MAPS_API_KEY")
                 }
             }
-            MapSourcePicker(
-                mapProvider = mapProvider,
-                onMapProviderChange = { mapProvider = it },
-            )
-            if (segments.isEmpty() && when (mapProvider) {
-                    MapProvider.Google -> BuildConfig.GOOGLE_MAPS_CONFIGURED
-                    MapProvider.Amap -> BuildConfig.AMAP_MAPS_CONFIGURED
+            MapProvider.Amap -> {
+                if (BuildConfig.AMAP_MAPS_CONFIGURED) {
+                    AmapSegmentMap(
+                        segments = segments,
+                        selectedSegment = selectedSegment,
+                        onSelectSegment = onSelectSegment,
+                    )
+                } else {
+                    EmptyPanel("缺少 AMAP_ANDROID_API_KEY")
                 }
-            ) {
-                MapHint("暂无轨迹")
             }
         }
-        Panel {
-            if (selectedSegment == null) {
-                Text("暂无选中轨迹", color = Muted, fontWeight = FontWeight.SemiBold)
-            } else {
-                TrackSummary(selectedSegment)
+        MapSourcePicker(
+            mapProvider = mapProvider,
+            onMapProviderChange = { mapProvider = it },
+        )
+        if (segments.isEmpty() && when (mapProvider) {
+                MapProvider.Google -> BuildConfig.GOOGLE_MAPS_CONFIGURED
+                MapProvider.Amap -> BuildConfig.AMAP_MAPS_CONFIGURED
             }
+        ) {
+            MapHint("暂无轨迹")
         }
     }
 }
