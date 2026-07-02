@@ -1,7 +1,9 @@
 :root {
-  color: #1f2933;
-  background: #eef2f5;
+  color: #1d2730;
+  background: #f4f7f6;
   font-family: Inter, "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
 }
 
 * {
@@ -12,15 +14,232 @@ body {
   margin: 0;
 }
 
+button,
+input,
+textarea {
+  font: inherit;
+}
+
 button {
   border: 0;
   cursor: pointer;
-  font: inherit;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+input,
+textarea {
+  width: 100%;
+  border: 1px solid #ccd8d5;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1d2730;
+  outline: 0;
+}
+
+input {
+  min-height: 42px;
+  padding: 0 12px;
+}
+
+textarea {
+  min-height: 86px;
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+input:focus,
+textarea:focus,
+button:focus-visible {
+  box-shadow: 0 0 0 3px rgba(34, 115, 111, 0.18);
+  border-color: #22736f;
+  outline: 0;
+}
+
+label {
+  display: grid;
+  gap: 7px;
+  color: #40515f;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.authShell {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+  background: #f4f7f6;
+}
+
+.authPanel {
+  display: grid;
+  gap: 22px;
+  width: min(100%, 420px);
+  padding: 28px;
+  border: 1px solid #d4dfdc;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 12px 28px rgba(29, 39, 48, 0.06);
+}
+
+.authPanel.compact {
+  width: min(100%, 340px);
+}
+
+.brandBlock {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brandMark {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 8px;
+  background: #22736f;
+  color: #ffffff;
+}
+
+.brandBlock h1,
+.brandBlock p,
+.toolbar h2,
+.toolbar p,
+.panelHeader h3,
+.importHeader h3,
+.importHeader p,
+.formError,
+.formSuccess,
+.emptyText {
+  margin: 0;
+}
+
+.brandBlock h1 {
+  font-size: 25px;
+  line-height: 1.05;
+}
+
+.brandBlock p,
+.toolbar p,
+.importHeader p {
+  color: #687986;
+  font-size: 13px;
+}
+
+.segmented {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 4px;
+  border: 1px solid #d4dfdc;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.segmented button {
+  min-height: 38px;
+  border-radius: 6px;
+  background: transparent;
+  color: #526572;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.segmented button.active {
+  background: #ffffff;
+  border: 1px solid #22736f;
+  color: #1d2730;
+}
+
+.authForm,
+.importForm,
+.editor {
+  display: grid;
+  gap: 14px;
+}
+
+.formError,
+.formSuccess {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.formError {
+  color: #b94b42;
+}
+
+.formSuccess {
+  color: #22736f;
+}
+
+.primaryButton,
+.secondaryButton,
+.dangerButton,
+.ghostButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 14px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.primaryButton {
+  background: #22736f;
+  color: #ffffff;
+}
+
+.secondaryButton {
+  border: 1px solid #c6d5d1;
+  background: #ffffff;
+  color: #27434f;
+}
+
+.dangerButton {
+  background: #b94b42;
+  color: #ffffff;
+}
+
+.ghostButton {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: transparent;
+  color: #e9f1ef;
+}
+
+.healthPill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  width: fit-content;
+  padding: 0 11px;
+  border: 1px solid #d4dfdc;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #526572;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.healthPill.ok {
+  color: #1f7b55;
+}
+
+.healthPill.error {
+  color: #b94b42;
 }
 
 .shell {
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: 260px minmax(0, 1fr);
   min-height: 100vh;
 }
 
@@ -29,31 +248,12 @@ button {
   flex-direction: column;
   gap: 24px;
   padding: 24px;
-  background: #17202a;
-  color: #f7fafc;
+  background: #17242d;
+  color: #f5fbf9;
 }
 
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.brand h1,
-.brand p,
-.toolbar h2,
-.toolbar p,
-.panel h3 {
-  margin: 0;
-}
-
-.brand h1 {
-  font-size: 24px;
-}
-
-.brand p {
-  color: #aab7c4;
-  font-size: 13px;
+.sidebar .brandBlock p {
+  color: #9fb0ba;
 }
 
 .nav {
@@ -69,40 +269,48 @@ button {
   padding: 0 12px;
   border-radius: 8px;
   background: transparent;
-  color: #d8e0e8;
+  color: #d9e5e2;
   text-align: left;
+  font-size: 14px;
+  font-weight: 800;
 }
 
 .navItem.active,
 .navItem:hover {
-  background: #2f6f73;
+  background: #22736f;
   color: #ffffff;
 }
 
-.status {
+.sidebarFooter {
+  display: grid;
+  gap: 10px;
+  margin-top: auto;
+}
+
+.sidebarFooter .healthPill,
+.accountBadge {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: transparent;
+  color: #d9e5e2;
+}
+
+.accountBadge {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: auto;
-  min-height: 40px;
-  padding: 0 12px;
+  min-height: 36px;
+  padding: 0 11px;
   border-radius: 8px;
-  background: #25313d;
-  color: #d8e0e8;
-}
-
-.status.ok {
-  color: #9be7c2;
-}
-
-.status.error {
-  color: #ffb4a8;
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .workspace {
   display: flex;
   flex-direction: column;
   gap: 18px;
+  min-width: 0;
   padding: 24px;
 }
 
@@ -115,44 +323,28 @@ button {
 
 .toolbar h2 {
   font-size: 26px;
-}
-
-.toolbar p {
-  margin-top: 4px;
-  color: #5f6f7f;
-}
-
-.actions {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.actions button {
-  min-height: 40px;
-  padding: 0 14px;
-  border-radius: 8px;
-  background: #2f6f73;
-  color: #ffffff;
+  line-height: 1.15;
 }
 
 .contentGrid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-columns: minmax(0, 1fr) 380px;
   gap: 18px;
   min-height: 0;
   flex: 1;
 }
 
 .mapSurface,
-.panel {
-  border: 1px solid #d5dde5;
+.sidePanel,
+.importSurface {
+  border: 1px solid #d4dfdc;
   border-radius: 8px;
   background: #ffffff;
 }
 
 .mapSurface {
-  min-height: 560px;
+  min-height: 590px;
+  overflow: hidden;
 }
 
 .mapPlaceholder {
@@ -161,26 +353,194 @@ button {
   align-content: center;
   gap: 12px;
   height: 100%;
-  color: #667789;
+  color: #687986;
+  font-size: 14px;
+  font-weight: 800;
 }
 
-.panel {
+.mapPreview {
+  position: relative;
+  min-height: 590px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.mapGrid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(90, 112, 118, 0.12) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(90, 112, 118, 0.12) 1px, transparent 1px);
+  background-size: 58px 58px;
+}
+
+.routeLine {
+  position: absolute;
+  left: 18%;
+  right: 18%;
+  top: 47%;
+  height: 3px;
+  border-radius: 999px;
+  background: #22736f;
+  transform: rotate(-8deg);
+  transform-origin: center;
+}
+
+.routePoint {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 3px solid #ffffff;
+  border-radius: 50%;
+  background: #b94b42;
+  box-shadow: 0 8px 18px rgba(29, 39, 48, 0.2);
+}
+
+.mapOverlay {
+  position: absolute;
+  left: 22px;
+  bottom: 22px;
+  display: grid;
+  gap: 5px;
+  min-width: 220px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.68);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 18px 38px rgba(29, 39, 48, 0.1);
+  backdrop-filter: blur(10px);
+}
+
+.mapOverlay span,
+.mapOverlay small,
+.panelHeader span,
+.trackItem small {
+  color: #687986;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.mapOverlay strong {
+  font-size: 20px;
+}
+
+.sidePanel {
+  display: grid;
+  align-content: start;
+  gap: 0;
+  overflow: hidden;
+}
+
+.panelSection {
+  display: grid;
+  gap: 14px;
   padding: 18px;
+  border-bottom: 1px solid #e2ebe8;
 }
 
-.panel h3 {
+.panelSection:last-child {
+  border-bottom: 0;
+}
+
+.panelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.panelHeader h3,
+.importHeader h3 {
   font-size: 18px;
 }
 
-.panel ul {
-  display: grid;
-  gap: 10px;
-  margin: 16px 0 0;
-  padding-left: 20px;
-  color: #445464;
+.emptyText {
+  color: #687986;
+  font-size: 14px;
 }
 
-@media (max-width: 900px) {
+.trackList {
+  display: grid;
+  gap: 9px;
+  max-height: 300px;
+  overflow: auto;
+}
+
+.trackItem {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  padding: 13px;
+  border: 1px solid #d4dfdc;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1d2730;
+  text-align: left;
+}
+
+.trackItem.active {
+  border-color: #22736f;
+  box-shadow: inset 3px 0 0 #22736f;
+}
+
+.trackItem strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trackType {
+  width: fit-content;
+  padding: 3px 7px;
+  border-radius: 6px;
+  border: 1px solid #c6d5d1;
+  background: #ffffff;
+  color: #27434f;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.fieldGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.buttonRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.importSurface {
+  display: grid;
+  gap: 20px;
+  max-width: 540px;
+  padding: 22px;
+}
+
+.importHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.importHeader svg {
+  color: #22736f;
+}
+
+@media (max-width: 1040px) {
+  .contentGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .mapSurface,
+  .mapPreview {
+    min-height: 420px;
+  }
+}
+
+@media (max-width: 760px) {
   .shell {
     grid-template-columns: 1fr;
   }
@@ -190,7 +550,7 @@ button {
   }
 
   .nav {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .navItem {
@@ -198,12 +558,20 @@ button {
     padding: 0;
   }
 
-  .contentGrid {
-    grid-template-columns: 1fr;
+  .workspace {
+    padding: 16px;
   }
 
   .toolbar {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .fieldGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .authPanel {
+    padding: 22px;
   }
 }
