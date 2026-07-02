@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     jwt_secret: str
     fr24_api_token: str = ""
     google_maps_api_key: str = ""
+    baidu_maps_api_key: str = ""
+    amap_maps_api_key: str = ""
 
     model_config = SettingsConfigDict(
         env_file="/root/semap/.env",

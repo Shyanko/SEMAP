@@ -16,6 +16,7 @@ from app.importers import (
 )
 from app.main import app
 from app.migrate import run_migrations
+from app.train_stations import import_station_seed
 
 client = TestClient(app)
 
@@ -32,6 +33,38 @@ def delete_account(username: str) -> None:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("delete from accounts where username = %s", (username,))
+        conn.commit()
+
+
+def upsert_test_station(name: str, lat: float, lng: float) -> None:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into train_stations (
+                    name, lat, lng, coordinate_source, coordinate_status, coordinate_query
+                )
+                values (%s, %s, %s, 'test', 'verified', %s)
+                on conflict (name) do update set
+                    lat = excluded.lat,
+                    lng = excluded.lng,
+                    coordinate_source = 'test',
+                    coordinate_status = 'verified',
+                    coordinate_query = excluded.coordinate_query,
+                    updated_at = now()
+                """,
+                (name, lat, lng, f"{name}站"),
+            )
+        conn.commit()
+
+
+def delete_test_stations(*names: str) -> None:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "delete from train_stations where coordinate_source = 'test' and name = any(%s)",
+                (list(names),),
+            )
         conn.commit()
 
 
@@ -191,40 +224,39 @@ def test_train_query_dates_falls_back_to_server_week():
 
 
 def test_train_import_fallback_keeps_requested_date(monkeypatch):
+    run_migrations()
     requested = date(2020, 1, 1)
     fallback = date(2026, 7, 2)
     rows = [
-        {"station_name": "廊坊", "start_time": "08:00", "arrive_time": "----", "arrive_day_diff": "0"},
-        {"station_name": "济南西", "start_time": "----", "arrive_time": "10:00", "arrive_day_diff": "0"},
+        {"station_name": "测试起点", "start_time": "08:00", "arrive_time": "----", "arrive_day_diff": "0"},
+        {"station_name": "测试终点", "start_time": "----", "arrive_time": "10:00", "arrive_day_diff": "0"},
     ]
-    geocode_addresses = []
+    try:
+        upsert_test_station("测试起点", 39.0, 116.0)
+        upsert_test_station("测试终点", 36.0, 117.0)
+        monkeypatch.setattr(importers, "train_query_dates", lambda _requested: [requested, fallback])
+        monkeypatch.setattr(
+            importers,
+            "fetch_train_rows",
+            lambda _client, _code, query_date: (
+                ({"train_no": "240000G8030B"} if query_date == fallback else None),
+                (rows if query_date == fallback else []),
+                (None if query_date == fallback else "2020-01-01 未找到 G803"),
+            ),
+        )
+        monkeypatch.setattr(importers, "geocode", lambda _address: (_ for _ in ()).throw(AssertionError("火车导入不应调用 Google Geocoding")))
+        monkeypatch.setattr(importers, "fetch_train_unit_record", lambda _code: {"emu_no": "CR400BFB5154"})
 
-    monkeypatch.setattr(importers, "train_query_dates", lambda _requested: [requested, fallback])
-    monkeypatch.setattr(
-        importers,
-        "fetch_train_rows",
-        lambda _client, _code, query_date: (
-            ({"train_no": "240000G8030B"} if query_date == fallback else None),
-            (rows if query_date == fallback else []),
-            (None if query_date == fallback else "2020-01-01 未找到 G803"),
-        ),
-    )
-    def fake_geocode(address: str):
-        geocode_addresses.append(address)
-        return 39.0, 116.0, {"address": address}
+        segment = importers.resolve_train_import("G803", requested, "测试起点", "测试终点")
 
-    monkeypatch.setattr(importers, "geocode", fake_geocode)
-    monkeypatch.setattr(importers, "fetch_train_unit_record", lambda _code: {"emu_no": "CR400BFB5154"})
-
-    segment = importers.resolve_train_import("G803", requested, "廊坊", "济南西")
-
-    assert segment.title == "G803 廊坊-济南西"
-    assert "2020-01-01" in segment.summary
-    assert segment.started_at and segment.started_at.date() == requested
-    assert [point.name for point in segment.points] == ["廊坊", "济南西"]
-    assert segment.metadata["vehicleModel"] == "CR400BFB"
-    assert "operatorName" not in segment.metadata
-    assert geocode_addresses == ["廊坊站", "济南西站"]
+        assert segment.title == "G803 测试起点-测试终点"
+        assert "2020-01-01" in segment.summary
+        assert segment.started_at and segment.started_at.date() == requested
+        assert [point.name for point in segment.points] == ["测试起点", "测试终点"]
+        assert segment.metadata["vehicleModel"] == "CR400BFB"
+        assert "operatorName" not in segment.metadata
+    finally:
+        delete_test_stations("测试起点", "测试终点")
 
 
 def test_train_stations_fallback_returns_requested_and_query_date(monkeypatch):
@@ -320,15 +352,76 @@ def test_train_vehicle_model_parses_rail_re_unit():
     assert importers.train_vehicle_model("ABC") == "ABC"
 
 
-def test_train_station_coordinate_uses_local_table(monkeypatch):
-    def fail_geocode(_address: str):
-        raise AssertionError("本地表命中时不应调用 Google Geocoding")
+def test_train_station_seed_imports_required_stations(monkeypatch):
+    run_migrations()
+    monkeypatch.setattr(importers, "geocode", lambda _address: (_ for _ in ()).throw(AssertionError("火车站坐标不应调用 Google Geocoding")))
+    import_station_seed()
 
-    monkeypatch.setattr(importers, "geocode", fail_geocode)
-    lat, lng, raw = importers.train_station_coordinate("云梦东站")
+    expected = {
+        "云梦东": (31.0479946, 113.7788677),
+        "安陆西": (31.2567844, 113.6470509),
+        "孝感东": (30.9357745, 113.9424846),
+        "汉口": (30.6216514, 114.2494144),
+        "大板": (43.52433806, 118.63308389),
+    }
+    for station, coordinates in expected.items():
+        result = importers.train_station_coordinate(f"{station}站")
+        assert result is not None
+        lat, lng, raw = result
+        assert (lat, lng) == coordinates
+        assert raw["source"] == "seed"
+        assert raw["station"] == station
 
-    assert (lat, lng) == (31.0479946, 113.7788677)
-    assert raw == {"source": "local_train_station_coordinates", "station": "云梦东"}
+
+def test_train_import_rejects_endpoint_without_database_coordinate(monkeypatch):
+    run_migrations()
+    import_station_seed()
+    requested = date(2026, 7, 2)
+    rows = [
+        {"station_name": "不存在东", "start_time": "08:00", "arrive_time": "----", "arrive_day_diff": "0"},
+        {"station_name": "汉口", "start_time": "----", "arrive_time": "10:00", "arrive_day_diff": "0"},
+    ]
+    monkeypatch.setattr(importers, "train_query_dates", lambda _requested: [requested])
+    monkeypatch.setattr(importers, "fetch_train_rows", lambda _client, _code, _query_date: ({"train_no": "X"}, rows, None))
+    monkeypatch.setattr(importers, "geocode", lambda _address: (0.0, 0.0, {"formatted_address": "错误地点"}))
+    monkeypatch.setattr(
+        importers,
+        "train_station_coordinate",
+        lambda station: importers.database_train_station_coordinate(station, resolve_missing=False),
+    )
+
+    try:
+        importers.resolve_train_import("G1", requested, "不存在东", "汉口")
+    except ImportFailure as error:
+        assert error.status_code == 422
+        assert "缺少乘车起点坐标" in error.message
+    else:
+        raise AssertionError("起点没有数据库坐标时应失败")
+
+
+def test_train_import_skips_middle_station_without_coordinate(monkeypatch):
+    run_migrations()
+    import_station_seed()
+    requested = date(2026, 7, 2)
+    rows = [
+        {"station_name": "汉口", "start_time": "08:00", "arrive_time": "----", "arrive_day_diff": "0"},
+        {"station_name": "中间缺坐标", "start_time": "09:00", "arrive_time": "09:00", "arrive_day_diff": "0"},
+        {"station_name": "孝感东", "start_time": "----", "arrive_time": "10:00", "arrive_day_diff": "0"},
+    ]
+    monkeypatch.setattr(importers, "train_query_dates", lambda _requested: [requested])
+    monkeypatch.setattr(importers, "fetch_train_rows", lambda _client, _code, _query_date: ({"train_no": "X"}, rows, None))
+    monkeypatch.setattr(importers, "fetch_train_unit_record", lambda _code: None)
+    monkeypatch.setattr(
+        importers,
+        "train_station_coordinate",
+        lambda station: importers.database_train_station_coordinate(station, resolve_missing=False),
+    )
+
+    segment = importers.resolve_train_import("G1", requested, "汉口", "孝感东")
+
+    assert [point.sequence for point in segment.points] == [0, 1]
+    assert [point.name for point in segment.points] == ["汉口", "孝感东"]
+    assert segment.response_payload["skippedMissingCoordinateStations"] == ["中间缺坐标"]
 
 
 def test_failed_import_does_not_write_segment(monkeypatch):

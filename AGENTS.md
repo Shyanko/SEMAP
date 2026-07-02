@@ -141,7 +141,7 @@ Android 版本规则：
 
 - Web 前端使用 Google Maps JavaScript API。
 - Android App 使用 Google Maps SDK for Android。
-- 后端需要坐标解析时使用 Google Maps Platform 的 Geocoding 能力。
+- 后端火车站坐标不在导入请求中实时调用地图解析服务。
 
 火车车次信息固定使用 12306：
 
@@ -152,7 +152,11 @@ Android 版本规则：
 - 返回：兜底查询不提示用户，摘要和点位日期仍使用用户输入日期。
 - 标记：所有 12306 生成的轨迹都设置 `isApproximate=true`。
 - 解析方式：先用 `https://search.12306.cn/search/v1/train/search` 按 `trainCode` 和 `yyyyMMdd` 日期获取内部 `train_no`，再用 `queryTrainInfo/query` 获取经停站。
-- 坐标生成：后端优先读取本地火车站坐标表，未命中时使用 Google Geocoding 按 `{station}站` 查询坐标。
+- 坐标生成：后端读取 PostgreSQL `train_stations` 坐标库，不在火车导入请求中实时调用 Google Geocoding。
+- 坐标同步：使用 `backend/scripts/sync_train_stations.py` 拉取 12306 全量站名并导入种子 CSV，默认不批量请求地图检索。
+- 坐标按需补全：火车导入遇到缺失站点坐标时，后端按需调用高德 POI 搜索和百度地点检索并缓存结果。
+- 坐标校验：外部检索结果必须落在中国范围内，POI 名称必须包含目标站名，标签必须是铁路相关；高德和百度都使用 GCJ-02 坐标。
+- 缺失处理：火车导入时起点或终点缺坐标必须失败；中间站缺坐标不阻断导入，只跳过该中间站点。
 - 稳定性：12306 不是公开稳定 API，每次修改适配器前必须现场验证响应结构。
 
 ### 2.5 不交付内容
@@ -208,6 +212,8 @@ Android 版本规则：
 - `JWT_SECRET`
 - `FR24_API_TOKEN`
 - `GOOGLE_MAPS_API_KEY`
+- `BAIDU_MAPS_API_KEY`
+- `AMAP_MAPS_API_KEY`
 - `VITE_API_BASE_URL`
 - `VITE_GOOGLE_MAPS_API_KEY`
 - `VITE_GOOGLE_MAPS_MAP_ID`
@@ -283,6 +289,24 @@ Android 版本规则：
 - `response_payload`
 - `status`
 - `created_at`
+
+### 5.6 train_stations
+
+- `id`
+- `name`
+- `telecode`
+- `pinyin`
+- `short_pinyin`
+- `sequence_no`
+- `city`
+- `lat`
+- `lng`
+- `coordinate_source`
+- `coordinate_status`: `missing`、`verified`、`rejected`
+- `coordinate_query`
+- `coordinate_raw`
+- `created_at`
+- `updated_at`
 
 ## 6. 后端接口
 

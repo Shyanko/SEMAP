@@ -8,7 +8,10 @@ from typing import Any
 import httpx
 
 from app.config import settings
-from app.train_station_coordinates import TRAIN_STATION_COORDINATES
+from app.train_stations import (
+    CoordinateLookupFailure,
+    train_station_coordinate as database_train_station_coordinate,
+)
 
 FR24_BASE_URL = "https://fr24api.flightradar24.com/api"
 CHINA_TZ = timezone(timedelta(hours=8))
@@ -321,12 +324,8 @@ def geocode(address: str) -> tuple[float, float, dict[str, Any]]:
     }
 
 
-def train_station_coordinate(station: str) -> tuple[float, float, dict[str, Any]]:
-    name = normalize_station_name(station)
-    if name in TRAIN_STATION_COORDINATES:
-        lat, lng = TRAIN_STATION_COORDINATES[name]
-        return lat, lng, {"source": "local_train_station_coordinates", "station": name}
-    return geocode(f"{name}站")
+def train_station_coordinate(station: str) -> tuple[float, float, dict[str, Any]] | None:
+    return database_train_station_coordinate(station, resolve_missing=True)
 
 
 def resolve_flight_import(flight_number: str, flight_date: date) -> ImportedSegment:
@@ -541,12 +540,28 @@ def resolve_train_import(
 
     selected_rows = select_train_rows(rows, from_station, to_station)
     points: list[ImportedPoint] = []
+    skipped_stations: list[str] = []
     for index, row in enumerate(selected_rows):
         station = row["station_name"]
-        lat, lng, raw = train_station_coordinate(station)
+        is_endpoint = index in {0, len(selected_rows) - 1}
+        try:
+            coordinate = train_station_coordinate(station)
+        except CoordinateLookupFailure as error:
+            if is_endpoint:
+                endpoint_name = "起点" if index == 0 else "终点"
+                raise ImportFailure(f"缺少乘车{endpoint_name}坐标：{station}。{error.message}", 422) from error
+            skipped_stations.append(station)
+            continue
+        if coordinate is None:
+            if is_endpoint:
+                endpoint_name = "起点" if index == 0 else "终点"
+                raise ImportFailure(f"缺少乘车{endpoint_name}坐标：{station}，地图服务未返回可信火车站结果", 422)
+            skipped_stations.append(station)
+            continue
+        lat, lng, raw = coordinate
         points.append(
             ImportedPoint(
-                sequence=index,
+                sequence=len(points),
                 lat=lat,
                 lng=lng,
                 recorded_at=train_station_time(
@@ -572,7 +587,12 @@ def resolve_train_import(
         is_approximate=True,
         metadata=train_metadata(code),
         points=points,
-        response_payload={"search": match, "stations": rows, "selectedStations": selected_rows},
+        response_payload={
+            "search": match,
+            "stations": rows,
+            "selectedStations": selected_rows,
+            "skippedMissingCoordinateStations": skipped_stations,
+        },
     )
 
 

@@ -30,7 +30,7 @@ android {
     defaultConfig {
         applicationId = "com.semap.app"
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 35
         versionCode = 100
         versionName = "1.0"
         buildConfigField(
@@ -45,6 +45,14 @@ android {
     buildFeatures {
         buildConfig = true
         compose = true
+    }
+
+    signingConfigs {
+        getByName("debug") {
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
+        }
     }
 }
 
