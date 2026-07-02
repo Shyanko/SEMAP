@@ -101,6 +101,7 @@ python -m pytest -q
 - 登录和注册。
 - 登录 token 保存到浏览器本地存储。
 - 页面刷新后自动读取当前用户。
+- 左栏入口为轨迹地图、航班导入和火车导入。
 - 拉取当前用户轨迹列表。
 - 使用 Google Maps JavaScript API 绘制轨迹点和轨迹线。
 - 没有轨迹时仍显示 Google 地图底图。
@@ -119,7 +120,8 @@ python -m pytest -q
 - 选中卡片右下角提供“更改”按钮，弹窗内可修改标题、起止时间、保存或删除路径。
 - 轨迹卡片 logo 使用正方形容器，航司 logo 和中国铁路 logo 都按正方形图标居中显示。
 - 点击轨迹列表以外的页面区域会取消选中。
-- 登录页和登录后的侧栏提供 Android APK 下载入口。
+- 登录页和登录后的侧栏提供 Android APK 下载入口，并提示手机端支持定位上传功能。
+- APK 下载入口指向当前正式版本 `SEMAP-1.0.apk`。
 - 后端健康状态显示。
 
 当前 Web 地图代码通过 `@googlemaps/js-api-loader` 加载 Google Maps JavaScript API。构建时读取仓库根目录 `.env` 中的 `VITE_GOOGLE_MAPS_API_KEY` 和 `VITE_GOOGLE_MAPS_MAP_ID`。当前服务器已配置本机 Web key，生产使用前需要确认 HTTP 来源限制。
@@ -214,7 +216,8 @@ HTTPS 使用 Let's Encrypt 证书，Nginx 站点配置在 `/etc/nginx/conf.d/sem
 - 用户输入日期没有可用车次时，火车导入会自动尝试服务器当前日期起未来 7 天，并把查询到的车次和时刻映射到用户输入日期返回。
 - 火车导入轨迹会保留区间内中间站坐标用于折线，地图 Marker 只显示起点和终点。
 - 航班导入使用 IATA code-search 将起降 IATA 代码解析为城市和机场名，用于 `originLocation` 和 `destinationLocation` 展示。
-- 外部导入轨迹返回 `metadata`。航班轨迹包含 `vehicleModel`、`registration`、`operatorName`、`operatorCode`、`originLocation`、`destinationLocation`、`logoUrl` 和 `logoText`。火车轨迹包含 `vehicleModel`、`unitNo`、`operatorName=中国铁路`、`operatorCode=12306`、`logoKind=railway_12306`、`logoUrl=/logos/China_Railways.svg` 和 `logoText=12306`。
+- 航班导入使用 IATA code-search 按航班号中的航司二字码解析运营方公司名，例如 `UA` 解析为 `United Airlines Inc`。航司查询失败时返回导入错误，不写入 `UAL` 这类兜底值。
+- 外部导入轨迹返回 `metadata`。航班轨迹包含 `vehicleModel`、`registration`、`operatorName`、`operatorCode`、`originLocation`、`destinationLocation`、`logoUrl` 和 `logoText`。航班 `logoUrl` 使用后端缓存代理 `/api/assets/airline-logos/{code}.png`，客户端不直接访问第三方 logo 源。火车轨迹包含 `vehicleModel`、`unitNo`、`operatorCode=12306`、`logoKind=railway_12306`、`logoUrl=/logos/China_Railways.svg` 和 `logoText=12306`。
 - 外部服务失败时接口返回包含外部服务详情的中文错误，不写入轨迹数据。
 
 GPS 会话规则：
@@ -222,9 +225,12 @@ GPS 会话规则：
 - 开始会话时创建 `gps` 类型轨迹片段和 `active` 会话。
 - 新建 GPS 轨迹标题格式为 `定位上传 N`。
 - GPS 轨迹 metadata 写入 `/logos/road.png`，Web 和 Android 使用该 road 图标展示。
+- Android 端开始 GPS 会话前要求精确定位权限和系统定位已开启。
+- Android 端 GPS 服务使用 Google Play services 融合定位请求高精度点位，忽略无精度信息、精度误差超过 50 米、过期或模拟定位点。
+- Android 端在中国大陆范围内把原始 WGS84 坐标转换为地图展示坐标后上传，同时保留原始坐标。
 - 暂停状态不接收定位点。
 - 继续状态重新接收定位点。
-- 点位上传请求字段为 `points`，每个点包含 `lat`、`lng`、可选 `altitude`、可选 `speed` 和 `recordedAt`。
+- 点位上传请求字段为 `points`，每个点包含 `lat`、`lng`、可选 `altitude`、可选 `speed`、`recordedAt`、`accuracy`、`provider`、`rawLat`、`rawLng` 和 `coordinateSystem`。
 - 后端按轨迹当前最大序号追加 GPS 点位。
 - 结束会话时写入轨迹结束时间并更新摘要。
 
@@ -280,9 +286,14 @@ adb version
 - 根据选中轨迹或全部轨迹自适应地图视野。
 - 航班导入页调用后端导入接口生成航班轨迹。
 - 火车导入页先按车次和日期查询经停站，再选择乘车起止站生成火车近似轨迹。
-- 轨迹列表和地图详情显示外部导入展示信息，航班轨迹加载航空公司远程 logo，火车轨迹加载项目本地中国铁路 logo，加载失败时显示文字 fallback。
+- 登录、地图、航班导入、火车导入和 GPS 记录页面支持纵向滚动，内容不会被屏幕高度裁掉。
+- Android 主界面避开系统状态栏和导航栏，文字不会贴到屏幕顶端。
+- 轨迹列表和地图详情显示外部导入展示信息，航班轨迹通过后端缓存接口加载航空公司 logo，火车轨迹使用本地中国铁路图标，logo 加载失败时显示文字 fallback。
 - GPS 记录页支持开始、暂停、继续和结束。
-- GPS 记录使用 Android 前台定位服务，定位来源为系统 `LocationManager` 的 GPS 和网络定位提供方。
+- GPS 记录使用 Android 前台定位服务，定位来源为 Google Play services 融合定位。
+- GPS 开始记录操作在启动中、记录中和暂停状态下保持幂等，不会重复创建定位会话。
+- GPS 点位只保留带精度信息且误差不超过 50 米的高精度定位点，并过滤过期点和模拟点。
+- GPS 点位在中国大陆范围内上传地图展示坐标，后端 raw 字段保留原始 WGS84 坐标、精度、provider 和坐标系。
 - GPS 点位先写入 Room 短时缓存，再上传到后端定位会话接口。
 - 网络短时不可用时点位保留在 Room，恢复后按会话批量补传。
 - Android 14+ 已声明前台定位服务类型和 `FOREGROUND_SERVICE_LOCATION` 权限。
@@ -304,8 +315,10 @@ cd /root/semap/android
 Web 下载地址：
 
 ```bash
-https://semap.xyz/downloads/semap-debug.apk
+https://semap.xyz/downloads/SEMAP-1.0.apk
 ```
+
+当前 APK 正式版本为 `1.0`，发布文件命名格式为 `SEMAP-版本号.apk`。
 
 默认 API 地址为 `https://semap.xyz/api/`。本地或模拟器验收时可以通过 Gradle 属性覆盖：
 

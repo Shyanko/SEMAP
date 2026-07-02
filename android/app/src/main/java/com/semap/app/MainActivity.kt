@@ -24,11 +24,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -53,7 +56,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import coil3.compose.AsyncImage
+import coil3.compose.SubcomposeAsyncImage
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
@@ -107,7 +110,8 @@ private fun SemapApp(viewModel: SemapViewModel) {
     Surface(
         modifier = Modifier
             .fillMaxSize()
-            .background(Page),
+            .background(Page)
+            .safeDrawingPadding(),
         color = Page,
     ) {
         when {
@@ -154,6 +158,7 @@ private fun AuthScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(24.dp),
         verticalArrangement = Arrangement.Center,
     ) {
@@ -280,40 +285,58 @@ private fun MainScreen(
             Text(state.error, color = Danger, fontWeight = FontWeight.SemiBold)
         }
         Spacer(Modifier.height(14.dp))
-        if (state.busy && state.segments.isEmpty()) {
-            CenterStatus("正在同步轨迹")
-        } else {
-            when (state.view) {
-                AppView.Map -> TrackMapScreen(
-                    segments = state.segments,
-                    selectedSegment = selectedSegment,
-                    onSelectSegment = onSelectSegment,
-                )
-                AppView.List -> TrackList(
-                    segments = state.segments,
-                    selectedSegment = selectedSegment,
-                    onSelectSegment = onSelectSegment,
-                )
-                AppView.FlightImport -> FlightImportScreen(
-                    busy = state.busy,
-                    onImport = onImportFlight,
-                )
-                AppView.TrainImport -> TrainImportScreen(
-                    busy = state.busy,
-                    lookup = state.trainStationLookup,
-                    onLookup = onLookupTrainStations,
-                    onImport = onImportTrain,
-                )
-                AppView.GpsRecord -> GpsRecordScreen(
-                    recorder = state.gpsRecorder,
-                    onStart = onStartGps,
-                    onPause = onPauseGps,
-                    onResume = onResumeGps,
-                    onFinish = onFinishGps,
-                )
+        Box(modifier = Modifier.weight(1f)) {
+            if (state.busy && state.segments.isEmpty()) {
+                CenterStatus("正在同步轨迹")
+            } else {
+                when (state.view) {
+                    AppView.Map -> TrackMapScreen(
+                        segments = state.segments,
+                        selectedSegment = selectedSegment,
+                        onSelectSegment = onSelectSegment,
+                    )
+                    AppView.List -> TrackList(
+                        segments = state.segments,
+                        selectedSegment = selectedSegment,
+                        onSelectSegment = onSelectSegment,
+                    )
+                    AppView.FlightImport -> ScrollScreen {
+                        FlightImportScreen(
+                            busy = state.busy,
+                            onImport = onImportFlight,
+                        )
+                    }
+                    AppView.TrainImport -> ScrollScreen {
+                        TrainImportScreen(
+                            busy = state.busy,
+                            lookup = state.trainStationLookup,
+                            onLookup = onLookupTrainStations,
+                            onImport = onImportTrain,
+                        )
+                    }
+                    AppView.GpsRecord -> ScrollScreen {
+                        GpsRecordScreen(
+                            recorder = state.gpsRecorder,
+                            onStart = onStartGps,
+                            onPause = onPauseGps,
+                            onResume = onResumeGps,
+                            onFinish = onFinishGps,
+                        )
+                    }
+                }
             }
         }
     }
+}
+
+@Composable
+private fun ScrollScreen(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        content = content,
+    )
 }
 
 @Composable
@@ -323,13 +346,15 @@ private fun TrackMapScreen(
     onSelectSegment: (Int) -> Unit,
 ) {
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
+                .height(360.dp)
                 .border(1.dp, Border, RoundedCornerShape(8.dp))
                 .clip(RoundedCornerShape(8.dp))
                 .background(Color.White),
@@ -438,7 +463,10 @@ private fun TrackList(
         return
     }
 
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
         items(segments, key = { it.id }) { segment ->
             TrackRow(
                 segment = segment,
@@ -608,7 +636,6 @@ private fun GpsRecordScreen(
     val permissions = remember {
         buildList {
             add(Manifest.permission.ACCESS_FINE_LOCATION)
-            add(Manifest.permission.ACCESS_COARSE_LOCATION)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 add(Manifest.permission.POST_NOTIFICATIONS)
             }
@@ -617,11 +644,11 @@ private fun GpsRecordScreen(
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { result ->
-        if (hasLocationPermission(context)) {
+        if (hasFineLocationPermission(context)) {
             permissionError = null
             onStart()
         } else {
-            permissionError = "需要定位权限才能开始记录"
+            permissionError = "需要精确定位权限才能开始记录"
         }
     }
 
@@ -670,9 +697,17 @@ private fun GpsRecordScreen(
                     Text("结束")
                 }
             }
+            "starting" -> Button(
+                enabled = false,
+                onClick = {},
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Brand),
+            ) {
+                Text("启动中")
+            }
             else -> Button(
                 onClick = {
-                    if (hasLocationPermission(context)) {
+                    if (hasFineLocationPermission(context)) {
                         permissionError = null
                         onStart()
                     } else {
@@ -748,10 +783,6 @@ private fun TrackSummary(segment: TrackSegment) {
     Spacer(Modifier.height(8.dp))
     Text(segment.title, fontWeight = FontWeight.Bold, color = TextPrimary)
     SegmentMetadata(segment)
-    if (segment.summary != null) {
-        Spacer(Modifier.height(4.dp))
-        Text(segment.summary, color = Muted)
-    }
 }
 
 @Composable
@@ -768,7 +799,13 @@ private fun TrackLogo(segment: TrackSegment) {
         modifier = Modifier.size(40.dp),
         contentAlignment = Alignment.Center,
     ) {
-        if (segment.sourceType == "gps") {
+        if (metadata.logoKind == "railway_12306") {
+            Image(
+                painter = painterResource(R.drawable.china_railways),
+                contentDescription = null,
+                modifier = Modifier.size(32.dp),
+            )
+        } else if (segment.sourceType == "gps") {
             Image(
                 painter = painterResource(R.drawable.road),
                 contentDescription = null,
@@ -777,10 +814,16 @@ private fun TrackLogo(segment: TrackSegment) {
         } else if (logoUrl == null) {
             Text(label.take(5), color = textColor, fontWeight = FontWeight.ExtraBold)
         } else {
-            AsyncImage(
+            SubcomposeAsyncImage(
                 model = absoluteAssetUrl(logoUrl),
                 contentDescription = null,
                 modifier = Modifier.size(32.dp),
+                error = {
+                    Text(label.take(5), color = textColor, fontWeight = FontWeight.ExtraBold)
+                },
+                loading = {
+                    Text(label.take(5), color = textColor, fontWeight = FontWeight.ExtraBold)
+                },
             )
         }
     }
@@ -792,14 +835,11 @@ private fun SegmentMetadata(segment: TrackSegment) {
     val startPlace = segmentStartPlace(segment)
     val endPlace = segmentEndPlace(segment)
     val items = listOfNotNull(
-        metadata.operatorName?.let { "运营方：$it" },
-        metadata.vehicleModel?.let { "${if (segment.sourceType == "train") "担当车型" else "机型"}：$it" },
-        metadata.registration?.let { "注册号：$it" },
+        *segmentPrimaryMetadata(segment).toTypedArray(),
         startPlace?.let { "${if (segment.sourceType == "train") "出发地点" else "起飞地点"}：$it" },
         endPlace?.let { "${if (segment.sourceType == "train") "到达地点" else "降落地点"}：$it" },
         "出发时间：${formatDateTime(segment.startedAt)}",
         "到达时间：${formatDateTime(segment.endedAt)}",
-        metadata.unitNo?.let { "车组号：$it" },
     )
     if (items.isEmpty()) {
         return
@@ -810,6 +850,35 @@ private fun SegmentMetadata(segment: TrackSegment) {
             Text(item, color = Muted, fontWeight = FontWeight.SemiBold)
         }
     }
+}
+
+private fun segmentPrimaryMetadata(segment: TrackSegment): List<String> {
+    val metadata = segment.metadata
+    if (segment.sourceType == "flight") {
+        val aircraft = when {
+            metadata.vehicleModel != null && metadata.registration != null ->
+                "机型：${metadata.vehicleModel}　注册号：${metadata.registration}"
+            metadata.vehicleModel != null -> "机型：${metadata.vehicleModel}"
+            metadata.registration != null -> "注册号：${metadata.registration}"
+            else -> null
+        }
+        return listOfNotNull(
+            segment.externalCode?.let { "航班号：$it" },
+            metadata.operatorName?.let { "运营方：$it" },
+            aircraft,
+        )
+    }
+    if (segment.sourceType == "train") {
+        val trainCode = segment.externalCode
+        val vehicleModel = metadata.vehicleModel
+        return when {
+            trainCode != null && vehicleModel != null -> listOf("车次：$trainCode　担当车型：$vehicleModel")
+            trainCode != null -> listOf("车次：$trainCode")
+            vehicleModel != null -> listOf("担当车型：$vehicleModel")
+            else -> emptyList()
+        }
+    }
+    return emptyList()
 }
 
 @Composable
@@ -958,14 +1027,13 @@ private fun formatDateTime(value: String?): String {
         .format(DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm"))
 }
 
-private fun hasLocationPermission(context: android.content.Context): Boolean {
+private fun hasFineLocationPermission(context: android.content.Context): Boolean {
     return ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
-        PackageManager.PERMISSION_GRANTED ||
-        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) ==
         PackageManager.PERMISSION_GRANTED
 }
 
 private fun gpsStatusText(status: String) = when (status) {
+    "starting" -> "启动中"
     "active" -> "记录中"
     "paused" -> "已暂停"
     "finished" -> "已结束"

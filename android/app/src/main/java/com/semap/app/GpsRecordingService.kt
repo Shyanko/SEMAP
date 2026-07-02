@@ -1,6 +1,7 @@
 package com.semap.app
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
@@ -9,14 +10,20 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.location.Location
-import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Build
-import android.os.Bundle
 import android.os.IBinder
+import android.os.Looper
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -24,6 +31,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import java.time.Instant
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 data class GpsRecorderState(
     val status: String = "idle",
@@ -46,23 +56,24 @@ class GpsRecordingService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val api = SemapApiClient.create()
     private lateinit var locationManager: LocationManager
+    private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var dao: PendingLocationPointDao
     private var authHeader: String? = null
     private var sessionId: Int? = null
+    private var creatingSession = false
 
-    private val locationListener = object : LocationListener {
-        override fun onLocationChanged(location: Location) {
-            scope.launch { cacheAndUpload(location) }
+    private val locationCallback = object : LocationCallback() {
+        override fun onLocationResult(result: LocationResult) {
+            result.locations.forEach { location ->
+                scope.launch { cacheAndUpload(location) }
+            }
         }
-
-        override fun onProviderDisabled(provider: String) = Unit
-        override fun onProviderEnabled(provider: String) = Unit
-        override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
     }
 
     override fun onCreate() {
         super.onCreate()
         locationManager = getSystemService(LocationManager::class.java)
+        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         dao = SemapDatabase.get(this).pendingLocationPointDao()
         ensureNotificationChannel()
     }
@@ -78,21 +89,37 @@ class GpsRecordingService : Service() {
             ACTION_RESUME -> resumeRecording()
             ACTION_FINISH -> finishRecording()
         }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
-        locationManager.removeUpdates(locationListener)
+        stopLocationUpdates()
         super.onDestroy()
     }
 
     private fun startRecording() {
         startForegroundNotification("正在启动 GPS 记录")
-        val header = authHeader ?: return fail("缺少登录令牌")
+        val current = GpsRecorderStore.state.value
+        if (creatingSession || current.status in setOf("active", "paused")) {
+            sessionId = current.sessionId ?: sessionId
+            updateNotification(if (current.status == "paused") "GPS 记录已暂停" else "正在记录 GPS 轨迹")
+            return
+        }
+        if (!hasFineLocationPermission()) {
+            failStart("缺少精确定位权限")
+            return
+        }
+        if (!isSystemLocationEnabled()) {
+            failStart("请开启系统定位后再开始记录")
+            return
+        }
+        val header = authHeader ?: return failStart("缺少登录令牌")
+        creatingSession = true
+        GpsRecorderStore.update(GpsRecorderState(status = "starting"))
         scope.launch {
-            runCatching {
+            try {
                 val session = api.createLocationSession(header)
                 sessionId = session.id
                 GpsRecorderStore.update(
@@ -104,14 +131,18 @@ class GpsRecordingService : Service() {
                 )
                 startLocationUpdates()
                 updateNotification("正在记录 GPS 轨迹")
-            }.onFailure { fail("GPS 会话创建失败：${it.message}") }
+            } catch (error: Throwable) {
+                failStart("GPS 会话创建失败：${error.message}")
+            } finally {
+                creatingSession = false
+            }
         }
     }
 
     private fun pauseRecording() {
         val id = sessionId ?: GpsRecorderStore.state.value.sessionId ?: return
         val header = authHeader ?: return fail("缺少登录令牌")
-        locationManager.removeUpdates(locationListener)
+        stopLocationUpdates()
         scope.launch {
             runCatching { api.pauseLocationSession(header, id) }
                 .onSuccess {
@@ -142,7 +173,7 @@ class GpsRecordingService : Service() {
     private fun finishRecording() {
         val id = sessionId ?: GpsRecorderStore.state.value.sessionId ?: return
         val header = authHeader ?: return fail("缺少登录令牌")
-        locationManager.removeUpdates(locationListener)
+        stopLocationUpdates()
         scope.launch {
             runCatching {
                 uploadPending()
@@ -159,43 +190,103 @@ class GpsRecordingService : Service() {
         }
     }
 
+    @SuppressLint("MissingPermission")
     private fun startLocationUpdates() {
-        if (!hasLocationPermission()) {
-            fail("缺少定位权限")
+        if (!hasFineLocationPermission()) {
+            fail("缺少精确定位权限")
             return
         }
-        val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-            .filter { locationManager.isProviderEnabled(it) }
-        if (providers.isEmpty()) {
-            fail("设备没有可用定位提供方")
+        if (!isSystemLocationEnabled()) {
+            fail("请开启系统定位后再开始记录")
             return
         }
-        runCatching {
-            for (provider in providers) {
-                locationManager.requestLocationUpdates(
-                    provider,
-                    10_000L,
-                    10f,
-                    locationListener,
-                    mainLooper,
-                )
-            }
-        }.onFailure {
+        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, LOCATION_INTERVAL_MS)
+            .setMinUpdateDistanceMeters(MIN_LOCATION_DISTANCE_METERS)
+            .setWaitForAccurateLocation(false)
+            .build()
+        fusedLocationClient.requestLocationUpdates(
+            request,
+            locationCallback,
+            Looper.getMainLooper(),
+        ).addOnFailureListener {
             fail("定位启动失败：${it.message}")
         }
     }
 
+    private fun stopLocationUpdates() {
+        if (::fusedLocationClient.isInitialized) {
+            fusedLocationClient.removeLocationUpdates(locationCallback)
+        }
+    }
+
+    private fun isSystemLocationEnabled(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            locationManager.isLocationEnabled
+        } else {
+            locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+                locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+        }
+    }
+
+    private fun waitForAccurateLocation(location: Location) {
+        val message = if (location.hasAccuracy()) {
+            "等待高精度定位信号，当前误差约 ${location.accuracy.toInt()} 米"
+        } else {
+            WAITING_ACCURATE_LOCATION
+        }
+        val current = GpsRecorderStore.state.value
+        if (current.error != message) {
+            GpsRecorderStore.update(current.copy(error = message))
+        }
+    }
+
+    private fun clearWaitingLocationError() {
+        val current = GpsRecorderStore.state.value
+        if (current.error?.startsWith(WAITING_ACCURATE_LOCATION) == true) {
+            GpsRecorderStore.update(current.copy(error = null))
+        }
+    }
+
+    private fun isAccurateLocation(location: Location): Boolean {
+        return location.hasAccuracy() && location.accuracy <= MAX_ACCEPTED_ACCURACY_METERS
+    }
+
+    private fun isFreshLocation(location: Location): Boolean {
+        val ageMillis = (SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos) / 1_000_000
+        return ageMillis in 0..MAX_LOCATION_AGE_MS
+    }
+
+    @Suppress("DEPRECATION")
+    private fun isMockLocation(location: Location): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) location.isMock else location.isFromMockProvider
+    }
+
     private suspend fun cacheAndUpload(location: Location) {
+        if (!isAccurateLocation(location)) {
+            waitForAccurateLocation(location)
+            return
+        }
+        if (!isFreshLocation(location) || isMockLocation(location)) {
+            waitForFreshLocation()
+            return
+        }
+        clearWaitingLocationError()
         val id = sessionId ?: return
+        val coordinate = mapCoordinate(location.latitude, location.longitude)
         dao.insert(
             PendingLocationPoint(
                 sessionId = id,
-                lat = location.latitude,
-                lng = location.longitude,
+                lat = coordinate.lat,
+                lng = coordinate.lng,
                 altitude = if (location.hasAltitude()) location.altitude else null,
                 speed = if (location.hasSpeed()) location.speed.toDouble() else null,
                 recordedAt = Instant.ofEpochMilli(location.time).toString(),
-            ),
+                accuracy = location.accuracy,
+                provider = location.provider,
+                rawLat = location.latitude,
+                rawLng = location.longitude,
+                coordinateSystem = coordinate.coordinateSystem,
+            )
         )
         updatePendingCount(id)
         runCatching { uploadPending() }
@@ -222,6 +313,11 @@ class GpsRecordingService : Service() {
                             altitude = it.altitude,
                             speed = it.speed,
                             recordedAt = it.recordedAt,
+                            accuracy = it.accuracy,
+                            provider = it.provider,
+                            rawLat = it.rawLat,
+                            rawLng = it.rawLng,
+                            coordinateSystem = it.coordinateSystem,
                         )
                     },
                 ),
@@ -253,10 +349,23 @@ class GpsRecordingService : Service() {
         updateNotification(message)
     }
 
-    private fun hasLocationPermission(): Boolean {
+    private fun failStart(message: String) {
+        creatingSession = false
+        GpsRecorderStore.update(GpsRecorderState(status = "idle", error = message))
+        updateNotification(message)
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    private fun waitForFreshLocation() {
+        val current = GpsRecorderStore.state.value
+        if (current.error != WAITING_FRESH_LOCATION) {
+            GpsRecorderStore.update(current.copy(error = WAITING_FRESH_LOCATION))
+        }
+    }
+
+    private fun hasFineLocationPermission(): Boolean {
         return ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
-            PackageManager.PERMISSION_GRANTED ||
-            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) ==
             PackageManager.PERMISSION_GRANTED
     }
 
@@ -301,6 +410,12 @@ class GpsRecordingService : Service() {
     companion object {
         private const val CHANNEL_ID = "gps_recording"
         private const val NOTIFICATION_ID = 1001
+        private const val LOCATION_INTERVAL_MS = 5_000L
+        private const val MIN_LOCATION_DISTANCE_METERS = 5f
+        private const val MAX_LOCATION_AGE_MS = 30_000L
+        private const val MAX_ACCEPTED_ACCURACY_METERS = 50f
+        private const val WAITING_ACCURATE_LOCATION = "等待高精度定位信号"
+        private const val WAITING_FRESH_LOCATION = "等待新的真实定位信号"
         private const val EXTRA_TOKEN = "token"
         private const val ACTION_START = "com.semap.app.gps.START"
         private const val ACTION_PAUSE = "com.semap.app.gps.PAUSE"
@@ -324,3 +439,44 @@ class GpsRecordingService : Service() {
             .putExtra(EXTRA_TOKEN, token)
     }
 }
+
+private data class Coordinate(val lat: Double, val lng: Double, val coordinateSystem: String)
+
+private fun mapCoordinate(lat: Double, lng: Double): Coordinate {
+    if (!isInMainlandChinaBounds(lat, lng)) {
+        return Coordinate(lat, lng, "wgs84")
+    }
+    val dLat = transformLat(lng - 105.0, lat - 35.0)
+    val dLng = transformLng(lng - 105.0, lat - 35.0)
+    val radLat = lat / 180.0 * PI
+    var magic = sin(radLat)
+    magic = 1 - EE * magic * magic
+    val sqrtMagic = sqrt(magic)
+    val mgLat = lat + (dLat * 180.0) / ((AXIS * (1 - EE)) / (magic * sqrtMagic) * PI)
+    val mgLng = lng + (dLng * 180.0) / (AXIS / sqrtMagic * cos(radLat) * PI)
+    return Coordinate(mgLat, mgLng, "gcj02")
+}
+
+private fun isInMainlandChinaBounds(lat: Double, lng: Double): Boolean {
+    return lng in 72.004..137.8347 && lat in 0.8293..55.8271
+}
+
+private fun transformLat(x: Double, y: Double): Double {
+    var value = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * sqrt(kotlin.math.abs(x))
+    value += (20.0 * sin(6.0 * x * PI) + 20.0 * sin(2.0 * x * PI)) * 2.0 / 3.0
+    value += (20.0 * sin(y * PI) + 40.0 * sin(y / 3.0 * PI)) * 2.0 / 3.0
+    value += (160.0 * sin(y / 12.0 * PI) + 320.0 * sin(y * PI / 30.0)) * 2.0 / 3.0
+    return value
+}
+
+private fun transformLng(x: Double, y: Double): Double {
+    var value = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * sqrt(kotlin.math.abs(x))
+    value += (20.0 * sin(6.0 * x * PI) + 20.0 * sin(2.0 * x * PI)) * 2.0 / 3.0
+    value += (20.0 * sin(x * PI) + 40.0 * sin(x / 3.0 * PI)) * 2.0 / 3.0
+    value += (150.0 * sin(x / 12.0 * PI) + 300.0 * sin(x / 30.0 * PI)) * 2.0 / 3.0
+    return value
+}
+
+private const val PI = 3.14159265358979324
+private const val AXIS = 6378245.0
+private const val EE = 0.00669342162296594323

@@ -98,6 +98,13 @@ App 必须包含以下能力：
 9. 网络短时不可用时缓存定位点。
 10. 恢复网络后补传定位点。
 11. 查看轨迹详情。
+12. 地图页、导入页和 GPS 记录页在小屏幕上必须可纵向滚动。
+
+Android 版本规则：
+
+1. 当前第一个正式 APK 版本为 `1.0`。
+2. 发布到 Web 下载入口的 APK 文件命名为 `SEMAP-版本号.apk`。
+3. Gradle `versionName` 和发布文件名必须同步更新。
 
 ### 2.3 后端 API
 
@@ -326,9 +333,11 @@ App 必须包含以下能力：
 3. 没有轨迹点时使用起飞机场和降落机场坐标生成近似轨迹。
 4. 外部服务失败时不写入轨迹。
 5. 标题由后端按航班号生成。
-6. `metadata` 写入机型、飞机注册号、航空公司、起飞地点、降落地点、航空公司 logo URL 和文字 fallback。
-7. 起飞地点和降落地点使用 IATA code-search 将 IATA 代码解析为城市和机场名。
-8. 返回生成的 `TrackSegment`。
+6. `metadata` 写入机型、飞机注册号、航空公司、起飞地点、降落地点、后端航司 logo URL 和文字 fallback。
+7. 航司 logo 由后端通过 `/api/assets/airline-logos/{code}.png` 获取并缓存，客户端不直接访问第三方 logo 源。
+8. 航空公司使用 IATA code-search 按航班号中的航司二字码解析公司名，查询失败时返回导入错误，不写入运营方兜底值。
+9. 起飞地点和降落地点使用 IATA code-search 将 IATA 代码解析为城市和机场名。
+10. 返回生成的 `TrackSegment`。
 
 ### 6.5 火车导入
 
@@ -354,7 +363,7 @@ App 必须包含以下能力：
 9. 只有起点和终点保留 `name`，中间站不在地图上显示 Marker。
 10. 标题由后端按车次和乘车区间生成。
 11. 通过 `https://api.rail.re/train/{trainCode}` 读取第一条担当记录，按 `emu_no` 归并生成担当车型展示值。
-12. `metadata` 写入担当车型、中国铁路运营方和项目本地中国铁路 logo URL。
+12. `metadata` 写入担当车型和项目本地中国铁路 logo URL，不写入中国铁路运营方。
 13. 设置 `isApproximate=true`。
 14. 摘要中写明按用户输入日期和乘车区间近似生成。
 
@@ -372,11 +381,15 @@ App 必须包含以下能力：
 2. GPS 轨迹标题按当前用户已有 GPS 轨迹数量生成，格式为 `定位上传 N`。
 3. GPS 轨迹 metadata 写入 `logoKind=gps_road` 和 `/logos/road.png`。
 4. 会话点位只允许通过定位会话接口上传。
-5. 暂停时会话状态改为 `paused`，不接收定位点。
-6. 继续时会话状态改为 `active`。
-7. 点位请求体为 `points` 数组，每个点包含 `lat`、`lng`、可选 `altitude`、可选 `speed` 和 `recordedAt`。
-8. 后端按轨迹当前最大序号追加 GPS 点位。
-9. 结束时会话状态改为 `finished`，轨迹片段写入结束时间并更新摘要。
+5. Android 开始记录前必须具备精确定位权限并确认系统定位已开启。
+6. Android 使用 Google Play services 融合定位请求高精度点位，只上传带精度信息且误差不超过 50 米、未过期、非模拟的定位点。
+7. Android 在中国大陆范围内将原始 WGS84 坐标转换为地图展示坐标后上传，同时保留原始坐标。
+8. Android 启动中、记录中和暂停状态下重复点击开始记录不得创建新会话。
+9. 暂停时会话状态改为 `paused`，不接收定位点。
+10. 继续时会话状态改为 `active`。
+11. 点位请求体为 `points` 数组，每个点包含 `lat`、`lng`、可选 `altitude`、可选 `speed`、`recordedAt`、`accuracy`、`provider`、`rawLat`、`rawLng` 和 `coordinateSystem`。
+12. 后端按轨迹当前最大序号追加 GPS 点位，并把精度、provider、原始坐标和坐标系写入点位 raw 字段。
+13. 结束时会话状态改为 `finished`，轨迹片段写入结束时间并更新摘要。
 
 ## 7. 实施顺序
 
@@ -534,6 +547,8 @@ App 必须包含以下能力：
 5. 后端会话管理。
 6. Web Android APK 下载入口。
 7. GPS 轨迹使用 road 图标和 `定位上传 N` 标题。
+8. Android GPS 记录使用融合定位的高精度点，重复开始不会创建多个会话。
+9. Android GPS 点位上传时保留精度、provider、原始坐标和坐标系。
 
 验收：
 

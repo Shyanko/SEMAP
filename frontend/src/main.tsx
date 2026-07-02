@@ -392,7 +392,7 @@ function Workspace({
             type="button"
           >
             <Route size={18} />
-            轨迹
+            轨迹地图
           </button>
           <button
             className={view === "flight" ? "navItem active" : "navItem"}
@@ -400,7 +400,7 @@ function Workspace({
             type="button"
           >
             <Plane size={18} />
-            航班
+            航班导入
           </button>
           <button
             className={view === "train" ? "navItem active" : "navItem"}
@@ -408,7 +408,7 @@ function Workspace({
             type="button"
           >
             <Train size={18} />
-            火车
+            火车导入
           </button>
         </nav>
 
@@ -430,7 +430,6 @@ function Workspace({
         <header className="toolbar">
           <div>
             <h2>{view === "tracks" ? "轨迹地图" : view === "flight" ? "航班导入" : "火车导入"}</h2>
-            <p>{segments.length} 条轨迹</p>
           </div>
           <button className="secondaryButton" onClick={onRefresh} type="button">
             <RefreshCw size={16} />
@@ -484,10 +483,13 @@ function Workspace({
 
 function ApkDownloadLink() {
   return (
-    <a className="downloadButton" download href="/downloads/semap-debug.apk">
-      <Download size={16} />
-      下载 Android APK
-    </a>
+    <div className="downloadBlock">
+      <a className="downloadButton" download href="/downloads/SEMAP-1.0.apk">
+        <Download size={16} />
+        下载 Android APK
+      </a>
+      <p>手机端支持定位上传功能</p>
+    </div>
   );
 }
 
@@ -795,11 +797,7 @@ function SegmentMetadata({
   const metadata = segment.metadata ?? {};
   const startPlace = segmentStartPlace(segment);
   const endPlace = segmentEndPlace(segment);
-  const primaryItems = [
-    metadata.operatorName ? ["运营方", metadata.operatorName] : null,
-    metadata.vehicleModel ? [segment.sourceType === "train" ? "担当车型" : "机型", metadata.vehicleModel] : null,
-    metadata.registration ? ["注册号", metadata.registration] : null,
-  ].filter(Boolean) as [string, string][];
+  const primaryItems = segmentPrimaryMetadata(segment);
   const locationItems = [
     startPlace ? [segment.sourceType === "train" ? "出发地点" : "起飞地点", startPlace] : null,
     endPlace ? [segment.sourceType === "train" ? "到达地点" : "降落地点", endPlace] : null,
@@ -808,25 +806,18 @@ function SegmentMetadata({
     ["出发时间", formatDateTime(segment.startedAt)],
     ["到达时间", formatDateTime(segment.endedAt)],
   ].filter(Boolean) as [string, string][];
-  const extraItems = [
-    metadata.unitNo && !compact ? ["车组号", metadata.unitNo] : null,
-  ].filter(Boolean) as [string, string][];
 
-  if (primaryItems.length === 0 && locationItems.length === 0 && timeItems.length === 0 && extraItems.length === 0) {
+  if (primaryItems.length === 0 && locationItems.length === 0 && timeItems.length === 0) {
     return null;
   }
 
   return (
     <div className={compact ? "metadataLine compact" : "metadataLine"}>
-      {primaryItems.length ? (
-        <div className="metadataGroup">
-          {primaryItems.map(([label, value]) => (
-            <span key={label}>
-              {label}：{value}
-            </span>
-          ))}
-        </div>
-      ) : null}
+      {primaryItems.map(([label, value]) => (
+        <span className="metadataRow" key={label}>
+          {label}：{value}
+        </span>
+      ))}
       {locationItems.map(([label, value]) => (
         <span className="metadataRow" key={label}>
           {label}：{value}
@@ -837,13 +828,41 @@ function SegmentMetadata({
           {label}：{value}
         </span>
       ))}
-      {extraItems.map(([label, value]) => (
-        <span className="metadataRow" key={label}>
-          {label}：{value}
-        </span>
-      ))}
     </div>
   );
+}
+
+function segmentPrimaryMetadata(segment: TrackSegment): [string, string][] {
+  const metadata = segment.metadata ?? {};
+  if (segment.sourceType === "flight") {
+    const aircraftItem =
+      metadata.vehicleModel && metadata.registration
+        ? ["机型", `${metadata.vehicleModel}　注册号：${metadata.registration}`]
+        : metadata.vehicleModel
+          ? ["机型", metadata.vehicleModel]
+          : metadata.registration
+            ? ["注册号", metadata.registration]
+            : null;
+    return [
+      segment.externalCode ? ["航班号", segment.externalCode] : null,
+      metadata.operatorName ? ["运营方", metadata.operatorName] : null,
+      aircraftItem,
+    ].filter(Boolean) as [string, string][];
+  }
+  if (segment.sourceType === "train") {
+    const trainCode = segment.externalCode;
+    const vehicleModel = metadata.vehicleModel;
+    if (trainCode && vehicleModel) {
+      return [["车次", `${trainCode}　担当车型：${vehicleModel}`]];
+    }
+    if (trainCode) {
+      return [["车次", trainCode]];
+    }
+    if (vehicleModel) {
+      return [["担当车型", vehicleModel]];
+    }
+  }
+  return [];
 }
 
 function ImportPanel({
@@ -857,7 +876,7 @@ function ImportPanel({
 }) {
   const isFlight = source === "flight";
   const [code, setCode] = React.useState("");
-  const [date, setDate] = React.useState(() => new Date().toISOString().slice(0, 10));
+  const [date, setDate] = React.useState("");
   const [fromStation, setFromStation] = React.useState("");
   const [toStation, setToStation] = React.useState("");
   const [trainStations, setTrainStations] = React.useState<TrainStationsResponse | null>(null);
@@ -884,7 +903,6 @@ function ImportPanel({
         {isFlight ? <Plane size={24} /> : <Train size={24} />}
         <div>
           <h3>{isFlight ? "航班号导入" : "车次号导入"}</h3>
-          <p>{isFlight ? "FlightRadar24" : "12306 指定日期"}</p>
         </div>
       </div>
       <form
@@ -926,7 +944,6 @@ function ImportPanel({
         <label>
           <span>{isFlight ? "航班号" : "车次号"}</span>
           <input
-            placeholder={isFlight ? "UA938" : "G803"}
             value={code}
             onChange={(event) => {
               setCode(event.target.value.toUpperCase());

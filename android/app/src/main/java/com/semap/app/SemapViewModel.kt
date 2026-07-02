@@ -199,7 +199,15 @@ class SemapViewModel(application: Application) : AndroidViewModel(application) {
 
     fun startGpsRecording() {
         val token = state.token ?: return
-        state = state.copy(view = AppView.GpsRecord, error = null)
+        if (state.gpsRecorder.status in setOf("starting", "active", "paused")) {
+            state = state.copy(view = AppView.GpsRecord, error = null)
+            return
+        }
+        state = state.copy(
+            view = AppView.GpsRecord,
+            error = null,
+            gpsRecorder = GpsRecorderState(status = "starting"),
+        )
         ContextCompat.startForegroundService(
             getApplication(),
             GpsRecordingService.startIntent(getApplication(), token),

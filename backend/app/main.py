@@ -3,6 +3,7 @@ from typing import Any
 
 import psycopg
 from fastapi import Depends, FastAPI, Header, HTTPException, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from psycopg.types.json import Json
 
@@ -11,6 +12,7 @@ from app.db import get_connection
 from app.importers import (
     ImportedSegment,
     ImportFailure,
+    cached_airline_logo_path,
     resolve_flight_import,
     resolve_train_import,
     resolve_train_stations,
@@ -81,6 +83,11 @@ class LocationPointRequest(BaseModel):
     altitude: float | None = None
     speed: float | None = Field(default=None, ge=0)
     recordedAt: datetime
+    accuracy: float | None = Field(default=None, ge=0)
+    provider: str | None = None
+    rawLat: float | None = Field(default=None, ge=-90, le=90)
+    rawLng: float | None = Field(default=None, ge=-180, le=180)
+    coordinateSystem: str | None = None
 
 
 class LocationPointsRequest(BaseModel):
@@ -358,6 +365,28 @@ def api_health():
     return health()
 
 
+def airline_logo_response(code: str) -> FileResponse:
+    try:
+        path = cached_airline_logo_path(code)
+    except ImportFailure as error:
+        raise HTTPException(error.status_code, error.message)
+    return FileResponse(
+        path,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=604800"},
+    )
+
+
+@app.get("/api/assets/airline-logos/{code}.png")
+def airline_logo(code: str):
+    return airline_logo_response(code)
+
+
+@app.head("/api/assets/airline-logos/{code}.png")
+def airline_logo_head(code: str):
+    return airline_logo_response(code)
+
+
 @app.post("/api/auth/register", response_model=AccountResponse, status_code=201)
 def register(payload: AuthRequest):
     with get_connection() as conn:
@@ -560,7 +589,14 @@ def append_location_points(
                         point.altitude,
                         point.speed,
                         point.recordedAt,
-                        Json({"source": "android_gps"}),
+                        Json({
+                            "source": "android_gps",
+                            "accuracy": point.accuracy,
+                            "provider": point.provider,
+                            "rawLat": point.rawLat,
+                            "rawLng": point.rawLng,
+                            "coordinateSystem": point.coordinateSystem,
+                        }),
                     ),
                 )
 

@@ -31,6 +31,11 @@ def point(lat: float, lng: float) -> dict:
         "altitude": 20.5,
         "speed": 1.8,
         "recordedAt": "2026-07-02T12:00:00Z",
+        "accuracy": 8.0,
+        "provider": "fused",
+        "rawLat": lat - 0.001,
+        "rawLng": lng - 0.001,
+        "coordinateSystem": "gcj02",
     }
 
 
@@ -85,7 +90,12 @@ def test_location_session_complete_flow():
         segment_response = client.get(f"/api/segments/{segment_id}", headers=headers)
         assert segment_response.status_code == 200
         assert segment_response.json()["sourceType"] == "gps"
-        assert len(segment_response.json()["points"]) == 2
+        points = segment_response.json()["points"]
+        assert len(points) == 2
+        assert points[0]["raw"]["accuracy"] == 8.0
+        assert points[0]["raw"]["provider"] == "fused"
+        assert points[0]["raw"]["rawLat"] == 39.899
+        assert points[0]["raw"]["coordinateSystem"] == "gcj02"
     finally:
         delete_account(username)
 

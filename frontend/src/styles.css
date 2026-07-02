@@ -242,6 +242,19 @@ label {
   color: #27434f;
 }
 
+.downloadBlock {
+  display: grid;
+  gap: 6px;
+}
+
+.downloadBlock p {
+  margin: 0;
+  color: #687986;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
 .iconButton {
   width: 36px;
   min-height: 36px;
@@ -340,6 +353,10 @@ label {
 
 .sidebarFooter .downloadButton {
   border-color: rgba(255, 255, 255, 0.22);
+}
+
+.sidebarFooter .downloadBlock p {
+  color: #9fb0ba;
 }
 
 .accountBadge {
@@ -643,15 +660,7 @@ label {
   gap: 5px;
 }
 
-.metadataGroup {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px 14px;
-  min-width: 0;
-}
-
-.metadataRow,
-.metadataGroup span {
+.metadataRow {
   min-width: 0;
   overflow-wrap: anywhere;
 }

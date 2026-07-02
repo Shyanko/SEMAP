@@ -9,6 +9,7 @@ from app.importers import (
     ImportedPoint,
     ImportedSegment,
     ImportFailure,
+    parse_iata_airline_name,
     parse_iata_airport_location,
     select_train_rows,
     train_query_dates,
@@ -40,17 +41,17 @@ def imported_segment(source_type: str) -> ImportedSegment:
         {
             "vehicleModel": "B763",
             "registration": "N671UA",
-            "operatorName": "UAL",
+            "operatorName": "United Airlines Inc",
             "operatorCode": "UA",
             "originLocation": "Chicago O'Hare International",
             "destinationLocation": "London Heathrow",
             "logoKind": "airline",
+            "logoUrl": importers.airline_logo_url("UA"),
             "logoText": "UA",
         }
         if source_type == "flight"
         else {
             "vehicleModel": "CR400",
-            "operatorName": "中国铁路",
             "operatorCode": "12306",
             "logoKind": "railway_12306",
             "logoUrl": importers.RAILWAY_12306_LOGO_URL,
@@ -99,6 +100,7 @@ def test_import_flight_creates_segment(monkeypatch):
         assert data["isApproximate"] is True
         assert data["metadata"]["vehicleModel"] == "B763"
         assert data["metadata"]["registration"] == "N671UA"
+        assert data["metadata"]["logoUrl"] == "/api/assets/airline-logos/UA.png"
         assert [point["name"] for point in data["points"]] == ["起点", "终点"]
     finally:
         delete_account(username)
@@ -128,7 +130,7 @@ def test_import_train_creates_segment(monkeypatch):
         assert data["transportType"] == "train"
         assert data["externalCode"] == "G803"
         assert data["metadata"]["vehicleModel"] == "CR400"
-        assert data["metadata"]["operatorName"] == "中国铁路"
+        assert "operatorName" not in data["metadata"]
         assert data["metadata"]["logoText"] == "12306"
         assert data["metadata"]["logoUrl"] == importers.RAILWAY_12306_LOGO_URL
         assert len(data["points"]) == 2
@@ -221,6 +223,7 @@ def test_train_import_fallback_keeps_requested_date(monkeypatch):
     assert segment.started_at and segment.started_at.date() == requested
     assert [point.name for point in segment.points] == ["廊坊", "济南西"]
     assert segment.metadata["vehicleModel"] == "CR400"
+    assert "operatorName" not in segment.metadata
     assert geocode_addresses == ["廊坊站", "济南西站"]
 
 
@@ -259,6 +262,56 @@ def test_parse_iata_airport_location():
     """
     assert parse_iata_airport_location(html, "CAN") == "Guangzhou Baiyun Intl"
     assert parse_iata_airport_location(html, "ORD") is None
+
+
+def test_parse_iata_airline_name():
+    html = """
+    <table><tbody>
+      <tr><td>United Airlines Inc</td><td>United States of America</td><td>UA</td></tr>
+      <tr><td>Uganda Airlines</td><td>Uganda</td><td>UR</td></tr>
+    </tbody></table>
+    """
+    assert parse_iata_airline_name(html, "UA") == "United Airlines Inc"
+    assert parse_iata_airline_name(html, "UAL") is None
+
+
+def test_flight_metadata_uses_iata_airline_name(monkeypatch):
+    monkeypatch.setattr(importers, "iata_airline_name", lambda code: "United Airlines Inc" if code == "UA" else None)
+
+    metadata = importers.flight_metadata(
+        "UA938",
+        {"painted_as": "UAL", "type": "B763", "reg": "N674UA"},
+        "Chicago O'Hare International",
+        "London Heathrow",
+    )
+
+    assert metadata["operatorName"] == "United Airlines Inc"
+    assert metadata["operatorCode"] == "UA"
+    assert metadata["vehicleModel"] == "B763"
+    assert metadata["registration"] == "N674UA"
+    assert metadata["logoUrl"] == "/api/assets/airline-logos/UA.png"
+
+
+def test_airline_logo_endpoint_returns_backend_cached_file(monkeypatch, tmp_path):
+    logo_path = tmp_path / "UA.png"
+    logo_path.write_bytes(b"png-data")
+    monkeypatch.setattr("app.main.cached_airline_logo_path", lambda code: logo_path)
+
+    response = client.get("/api/assets/airline-logos/UA.png")
+
+    assert response.status_code == 200
+    assert response.content == b"png-data"
+    assert response.headers["cache-control"] == "public, max-age=604800"
+    assert client.head("/api/assets/airline-logos/UA.png").status_code == 200
+
+
+def test_cached_airline_logo_rejects_invalid_code():
+    try:
+        importers.cached_airline_logo_path("../UA")
+    except ImportFailure as error:
+        assert error.status_code == 404
+    else:
+        raise AssertionError("无效航司代码应返回失败")
 
 
 def test_train_vehicle_model_parses_rail_re_unit():

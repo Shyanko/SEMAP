@@ -149,6 +149,11 @@ data class LocationPointRequest(
     val altitude: Double? = null,
     val speed: Double? = null,
     val recordedAt: String,
+    val accuracy: Float? = null,
+    val provider: String? = null,
+    val rawLat: Double? = null,
+    val rawLng: Double? = null,
+    val coordinateSystem: String? = null,
 )
 
 @Serializable

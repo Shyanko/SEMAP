@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from html import unescape
+from pathlib import Path
 import re
 from typing import Any
 
@@ -13,6 +14,8 @@ FR24_BASE_URL = "https://fr24api.flightradar24.com/api"
 CHINA_TZ = timezone(timedelta(hours=8))
 RAILWAY_12306_LOGO_URL = "/logos/China_Railways.svg"
 IATA_CODE_SEARCH_URL = "https://www.iata.org/en/publications/directories/code-search/"
+AIRLINE_LOGO_BASE_URL = "https://images.kiwi.com/airlines/64"
+AIRLINE_LOGO_CACHE_DIR = Path("/var/cache/semap/airline_logos")
 
 
 class ImportFailure(Exception):
@@ -130,10 +133,41 @@ def flight_airline_code(flight_code: str) -> str | None:
     return match.group(0) if match else None
 
 
-def airline_logo_url(code: str | None) -> str | None:
+def normalized_airline_logo_code(code: str | None) -> str | None:
     if not code:
         return None
-    return f"https://images.kiwi.com/airlines/64/{code}.png"
+    normalized = code.upper()
+    return normalized if re.fullmatch(r"[A-Z0-9]{2,3}", normalized) else None
+
+
+def airline_logo_url(code: str | None) -> str | None:
+    normalized = normalized_airline_logo_code(code)
+    if not normalized:
+        return None
+    return f"/api/assets/airline-logos/{normalized}.png"
+
+
+def cached_airline_logo_path(code: str) -> Path:
+    normalized = normalized_airline_logo_code(code)
+    if not normalized:
+        raise ImportFailure("航司 logo 代码无效", 404)
+    AIRLINE_LOGO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    path = AIRLINE_LOGO_CACHE_DIR / f"{normalized}.png"
+    if path.is_file():
+        return path
+
+    with httpx.Client(timeout=12, trust_env=False, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0"}) as client:
+        try:
+            response = client.get(f"{AIRLINE_LOGO_BASE_URL}/{normalized}.png")
+        except httpx.TimeoutException as error:
+            raise ImportFailure("航司 logo 获取失败：请求超时", 504) from error
+        except httpx.HTTPError as error:
+            raise ImportFailure(f"航司 logo 获取失败：{error}", 502) from error
+    content_type = response.headers.get("content-type", "")
+    if response.status_code != 200 or not content_type.startswith("image/") or not response.content:
+        raise ImportFailure(f"未找到航司 logo：{normalized}", 404)
+    path.write_bytes(response.content)
+    return path
 
 
 def text_from_cell(value: str) -> str:
@@ -149,6 +183,18 @@ def parse_iata_airport_location(html: str, code: str) -> str | None:
         city, airport, location_code = [text_from_cell(cell) for cell in cells[:3]]
         if location_code.upper() == target and city and airport:
             return f"{city} {airport}"
+    return None
+
+
+def parse_iata_airline_name(html: str, code: str) -> str | None:
+    target = code.upper()
+    for row in re.findall(r"<tr[^>]*>(.*?)</tr>", html, flags=re.DOTALL | re.IGNORECASE):
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", row, flags=re.DOTALL | re.IGNORECASE)
+        if len(cells) < 3:
+            continue
+        company_name, _country, airline_code = [text_from_cell(cell) for cell in cells[:3]]
+        if airline_code.upper() == target and company_name:
+            return company_name
     return None
 
 
@@ -168,6 +214,23 @@ def iata_airport_location(code: str) -> str | None:
     return parse_iata_airport_location(html, code)
 
 
+def iata_airline_name(code: str) -> str | None:
+    with httpx.Client(timeout=20, trust_env=False, headers={"User-Agent": "Mozilla/5.0"}) as client:
+        response, html = request_text(
+            client,
+            IATA_CODE_SEARCH_URL,
+            f"IATA 航司代码查询失败：{code}",
+            params={"airline.search": code},
+            follow_redirects=True,
+        )
+    if response.status_code != 200:
+        raise ImportFailure(f"IATA 航司代码查询失败：{code}。HTTP {response.status_code}")
+    name = parse_iata_airline_name(html, code)
+    if not name:
+        raise ImportFailure(f"IATA 未找到航司代码：{code}", 404)
+    return name
+
+
 def airport_location(code: str | None) -> str | None:
     if not code:
         return None
@@ -182,10 +245,11 @@ def flight_metadata(
 ) -> dict[str, Any]:
     airline_code = flight_airline_code(flight_code)
     operator_code = flight.get("painted_as") or flight.get("operating_as") or airline_code
+    operator_name = iata_airline_name(airline_code or operator_code) if airline_code or operator_code else None
     metadata = {
         "vehicleModel": flight.get("type"),
         "registration": flight.get("reg"),
-        "operatorName": operator_code,
+        "operatorName": operator_name,
         "operatorCode": airline_code or operator_code,
         "originLocation": origin_location,
         "destinationLocation": destination_location,
@@ -228,7 +292,6 @@ def train_metadata(train_code: str) -> dict[str, Any]:
     metadata: dict[str, Any] = {
         "vehicleModel": train_vehicle_model(emu_no),
         "unitNo": emu_no,
-        "operatorName": "中国铁路",
         "operatorCode": "12306",
         "logoKind": "railway_12306",
         "logoUrl": RAILWAY_12306_LOGO_URL,
