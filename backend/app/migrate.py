@@ -16,6 +16,7 @@ def run_migrations() -> None:
                 )
                 """
             )
+            cur.execute("select pg_advisory_lock(hashtext('semap_migrations'))")
 
             for path in sorted(MIGRATIONS_DIR.glob("*.sql")):
                 cur.execute(
@@ -26,9 +27,14 @@ def run_migrations() -> None:
                     continue
                 cur.execute(path.read_text(encoding="utf-8"))
                 cur.execute(
-                    "insert into semap_migrations (filename) values (%s)",
+                    """
+                    insert into semap_migrations (filename)
+                    values (%s)
+                    on conflict (filename) do nothing
+                    """,
                     (path.name,),
                 )
+            cur.execute("select pg_advisory_unlock(hashtext('semap_migrations'))")
         conn.commit()
 
 

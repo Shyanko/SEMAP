@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 
 import psycopg
 from fastapi import Depends, FastAPI, Header, HTTPException, status
@@ -27,6 +28,44 @@ class LoginResponse(BaseModel):
     accessToken: str
     tokenType: str
     account: AccountResponse
+
+
+class TrackPointResponse(BaseModel):
+    id: int
+    sequence: int
+    lat: float
+    lng: float
+    altitude: float | None = None
+    speed: float | None = None
+    recordedAt: datetime | None = None
+    name: str | None = None
+    raw: dict[str, Any] | None = None
+
+
+class SegmentUpdateRequest(BaseModel):
+    version: int
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    startedAt: datetime | None = None
+    endedAt: datetime | None = None
+    summary: str | None = None
+    note: str | None = None
+
+
+class TrackSegmentResponse(BaseModel):
+    id: int
+    title: str
+    sourceType: str
+    transportType: str
+    externalCode: str | None
+    startedAt: datetime | None
+    endedAt: datetime | None
+    summary: str | None
+    note: str | None
+    isApproximate: bool
+    version: int
+    createdAt: datetime
+    updatedAt: datetime
+    points: list[TrackPointResponse]
 
 
 def database_ready() -> bool:
@@ -68,6 +107,67 @@ def get_current_account(authorization: str | None = Header(default=None)) -> dic
     if not account:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "登录已失效")
     return account
+
+
+def point_response(point: dict) -> TrackPointResponse:
+    return TrackPointResponse(
+        id=point["id"],
+        sequence=point["sequence"],
+        lat=point["lat"],
+        lng=point["lng"],
+        altitude=point["altitude"],
+        speed=point["speed"],
+        recordedAt=point["recorded_at"],
+        name=point["name"],
+        raw=point["raw"],
+    )
+
+
+def segment_response(segment: dict, points: list[dict]) -> TrackSegmentResponse:
+    return TrackSegmentResponse(
+        id=segment["id"],
+        title=segment["title"],
+        sourceType=segment["source_type"],
+        transportType=segment["transport_type"],
+        externalCode=segment["external_code"],
+        startedAt=segment["started_at"],
+        endedAt=segment["ended_at"],
+        summary=segment["summary"],
+        note=segment["note"],
+        isApproximate=segment["is_approximate"],
+        version=segment["version"],
+        createdAt=segment["created_at"],
+        updatedAt=segment["updated_at"],
+        points=[point_response(point) for point in points],
+    )
+
+
+def fetch_segment_with_points(segment_id: int, account_id: int) -> TrackSegmentResponse:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select *
+                from track_segments
+                where id = %s and account_id = %s
+                """,
+                (segment_id, account_id),
+            )
+            segment = cur.fetchone()
+            if not segment:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "轨迹不存在")
+
+            cur.execute(
+                """
+                select *
+                from track_points
+                where segment_id = %s
+                order by sequence
+                """,
+                (segment_id,),
+            )
+            points = cur.fetchall()
+    return segment_response(segment, points)
 
 
 @app.get("/health")
@@ -129,3 +229,140 @@ def login(payload: AuthRequest):
 @app.get("/api/auth/me", response_model=AccountResponse)
 def me(account: dict = Depends(get_current_account)):
     return account_response(account)
+
+
+@app.get("/api/segments", response_model=list[TrackSegmentResponse])
+def list_segments(account: dict = Depends(get_current_account)):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select *
+                from track_segments
+                where account_id = %s
+                order by updated_at desc, id desc
+                """,
+                (account["id"],),
+            )
+            segments = cur.fetchall()
+            if not segments:
+                return []
+
+            segment_ids = [segment["id"] for segment in segments]
+            cur.execute(
+                """
+                select *
+                from track_points
+                where segment_id = any(%s)
+                order by segment_id, sequence
+                """,
+                (segment_ids,),
+            )
+            points_by_segment = {segment_id: [] for segment_id in segment_ids}
+            for point in cur.fetchall():
+                points_by_segment[point["segment_id"]].append(point)
+
+    return [
+        segment_response(segment, points_by_segment[segment["id"]])
+        for segment in segments
+    ]
+
+
+@app.get("/api/segments/{segment_id}", response_model=TrackSegmentResponse)
+def get_segment(segment_id: int, account: dict = Depends(get_current_account)):
+    return fetch_segment_with_points(segment_id, account["id"])
+
+
+@app.patch("/api/segments/{segment_id}", response_model=TrackSegmentResponse)
+def update_segment(
+    segment_id: int,
+    payload: SegmentUpdateRequest,
+    account: dict = Depends(get_current_account),
+):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select *
+                from track_segments
+                where id = %s and account_id = %s
+                """,
+                (segment_id, account["id"]),
+            )
+            current = cur.fetchone()
+            if not current:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "轨迹不存在")
+            if current["version"] != payload.version:
+                raise HTTPException(status.HTTP_409_CONFLICT, "轨迹已被修改，请刷新后重试")
+
+            fields = payload.model_fields_set
+            cur.execute(
+                """
+                update track_segments
+                set
+                    title = %s,
+                    started_at = %s,
+                    ended_at = %s,
+                    summary = %s,
+                    note = %s,
+                    version = version + 1,
+                    updated_at = now()
+                where id = %s and account_id = %s
+                returning *
+                """,
+                (
+                    payload.title if "title" in fields else current["title"],
+                    payload.startedAt if "startedAt" in fields else current["started_at"],
+                    payload.endedAt if "endedAt" in fields else current["ended_at"],
+                    payload.summary if "summary" in fields else current["summary"],
+                    payload.note if "note" in fields else current["note"],
+                    segment_id,
+                    account["id"],
+                ),
+            )
+            segment = cur.fetchone()
+            cur.execute(
+                """
+                select *
+                from track_points
+                where segment_id = %s
+                order by sequence
+                """,
+                (segment_id,),
+            )
+            points = cur.fetchall()
+        conn.commit()
+
+    return segment_response(segment, points)
+
+
+@app.delete("/api/segments/{segment_id}", status_code=204)
+def delete_segment(
+    segment_id: int,
+    version: int,
+    account: dict = Depends(get_current_account),
+):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select version
+                from track_segments
+                where id = %s and account_id = %s
+                """,
+                (segment_id, account["id"]),
+            )
+            current = cur.fetchone()
+            if not current:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "轨迹不存在")
+            if current["version"] != version:
+                raise HTTPException(status.HTTP_409_CONFLICT, "轨迹已被修改，请刷新后重试")
+
+            cur.execute(
+                """
+                delete from track_segments
+                where id = %s and account_id = %s
+                """,
+                (segment_id, account["id"]),
+            )
+        conn.commit()

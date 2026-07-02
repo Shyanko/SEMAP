@@ -52,7 +52,6 @@ function App() {
             <p>Web 前端已连接同源 API，后续接入登录、轨迹列表和 Google Maps。</p>
           </div>
           <div className="actions">
-            <button>新增轨迹</button>
             <button>导入航班</button>
             <button>导入车次</button>
           </div>
