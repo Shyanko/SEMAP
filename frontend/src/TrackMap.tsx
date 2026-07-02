@@ -1,15 +1,28 @@
 import React from "react";
 import { Map } from "lucide-react";
+import { AmapTrackMap } from "./AmapTrackMap";
 import { loadGoogleMaps } from "./googleMaps";
 import type { TrackSegment } from "./types";
 
 const DEFAULT_CENTER = { lat: 35.8617, lng: 104.1954 };
+const MAP_SOURCE_STORAGE_KEY = "semap.mapSource";
 const configuredApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim() || "";
 const MAP_API_KEY = configuredApiKey === "change-me" ? "" : configuredApiKey;
 const configuredMapId = import.meta.env.VITE_GOOGLE_MAPS_MAP_ID?.trim() || "";
 const MAP_ID = configuredMapId && configuredMapId !== "change-me" ? configuredMapId : "DEMO_MAP_ID";
+const configuredAmapApiKey = import.meta.env.VITE_AMAP_JS_API_KEY?.trim() || "";
+const AMAP_API_KEY = configuredAmapApiKey === "change-me" ? "" : configuredAmapApiKey;
+const configuredAmapSecurityCode = import.meta.env.VITE_AMAP_SECURITY_JS_CODE?.trim() || "";
+const AMAP_SECURITY_JS_CODE =
+  configuredAmapSecurityCode === "change-me" ? "" : configuredAmapSecurityCode;
 
 type MapOverlay = google.maps.marker.AdvancedMarkerElement | google.maps.Polyline;
+type MapSource = "google" | "amap";
+type TrackMapProps = {
+  segments: TrackSegment[];
+  selectedSegment: TrackSegment | null;
+  onSelectSegment: (segmentId: number | null) => void;
+};
 
 function pointLabel(point: TrackSegment["points"][number]) {
   return point.name ?? `${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`;
@@ -34,15 +47,22 @@ function segmentBounds(
   return { bounds, count };
 }
 
-export function TrackMap({
+function configuredMapSource() {
+  const stored = localStorage.getItem(MAP_SOURCE_STORAGE_KEY);
+  if (stored === "amap" && AMAP_API_KEY && AMAP_SECURITY_JS_CODE) {
+    return "amap";
+  }
+  if (stored === "google" && MAP_API_KEY) {
+    return "google";
+  }
+  return MAP_API_KEY ? "google" : "amap";
+}
+
+function GoogleTrackMap({
   segments,
   selectedSegment,
   onSelectSegment,
-}: {
-  segments: TrackSegment[];
-  selectedSegment: TrackSegment | null;
-  onSelectSegment: (segmentId: number | null) => void;
-}) {
+}: TrackMapProps) {
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const mapRef = React.useRef<google.maps.Map | null>(null);
   const overlaysRef = React.useRef<MapOverlay[]>([]);
@@ -151,8 +171,8 @@ export function TrackMap({
   }, [maps, markerLibrary, onSelectSegment, segments, selectedSegment]);
 
   return (
-    <div className="mapFrame">
-      <div className="googleMap" ref={containerRef} />
+    <>
+      <div className="trackMapCanvas googleMap" ref={containerRef} />
       {!maps || error ? (
         <div className="mapStatus">
           <Map size={38} />
@@ -160,6 +180,42 @@ export function TrackMap({
         </div>
       ) : null}
       {maps && !error && segments.length === 0 ? <div className="mapEmptyHint">暂无轨迹</div> : null}
+    </>
+  );
+}
+
+export function TrackMap(props: TrackMapProps) {
+  const [mapSource, setMapSource] = React.useState<MapSource>(() => configuredMapSource());
+  const amapConfigured = Boolean(AMAP_API_KEY && AMAP_SECURITY_JS_CODE);
+  const googleConfigured = Boolean(MAP_API_KEY);
+
+  function updateMapSource(nextSource: MapSource) {
+    setMapSource(nextSource);
+    localStorage.setItem(MAP_SOURCE_STORAGE_KEY, nextSource);
+  }
+
+  return (
+    <div className="mapFrame">
+      {mapSource === "amap" ? <AmapTrackMap {...props} /> : <GoogleTrackMap {...props} />}
+
+      <div className="mapSourceControl" aria-label="地图底图">
+        <button
+          className={mapSource === "google" ? "active" : ""}
+          disabled={!googleConfigured}
+          type="button"
+          onClick={() => updateMapSource("google")}
+        >
+          Google
+        </button>
+        <button
+          className={mapSource === "amap" ? "active" : ""}
+          disabled={!amapConfigured}
+          type="button"
+          onClick={() => updateMapSource("amap")}
+        >
+          高德
+        </button>
+      </div>
     </div>
   );
 }

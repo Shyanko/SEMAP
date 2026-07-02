@@ -424,9 +424,48 @@ label {
   height: 100%;
 }
 
+.trackMapCanvas,
 .googleMap {
   position: absolute;
   inset: 0;
+}
+
+.mapSourceControl {
+  position: absolute;
+  left: 14px;
+  top: 14px;
+  z-index: 4;
+  display: inline-flex;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid #cfdad7;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 8px 20px rgba(29, 39, 48, 0.12);
+}
+
+.mapSourceControl button {
+  min-width: 64px;
+  height: 34px;
+  border: 0;
+  border-right: 1px solid #dce5e2;
+  background: #ffffff;
+  color: #526572;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.mapSourceControl button:last-child {
+  border-right: 0;
+}
+
+.mapSourceControl button.active {
+  color: #b94b42;
+}
+
+.mapSourceControl button:disabled {
+  color: #9aa8ae;
+  cursor: not-allowed;
 }
 
 .mapStatus {
@@ -445,7 +484,7 @@ label {
 .mapEmptyHint {
   position: absolute;
   left: 16px;
-  top: 16px;
+  top: 62px;
   padding: 8px 11px;
   border: 1px solid #d4dfdc;
   border-radius: 8px;

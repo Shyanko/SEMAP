@@ -22,6 +22,40 @@ val googleMapsApiKey = providers.gradleProperty("GOOGLE_MAPS_API_KEY")
     .orElse(providers.environmentVariable("GOOGLE_MAPS_API_KEY"))
     .orElse(localEnvValue("GOOGLE_MAPS_API_KEY"))
     .get()
+val configuredAmapAndroidApiKey = providers.gradleProperty("AMAP_ANDROID_API_KEY")
+    .orElse(providers.environmentVariable("AMAP_ANDROID_API_KEY"))
+    .orElse(localEnvValue("AMAP_ANDROID_API_KEY"))
+    .get()
+val amapAndroidApiKey = configuredAmapAndroidApiKey.ifBlank { localEnvValue("AMAP_MAPS_API_KEY") }
+
+val releaseStoreFilePath = providers.gradleProperty("ANDROID_RELEASE_STORE_FILE")
+    .orElse(providers.environmentVariable("ANDROID_RELEASE_STORE_FILE"))
+    .orElse(localEnvValue("ANDROID_RELEASE_STORE_FILE"))
+    .get()
+val releaseStorePassword = providers.gradleProperty("ANDROID_RELEASE_STORE_PASSWORD")
+    .orElse(providers.environmentVariable("ANDROID_RELEASE_STORE_PASSWORD"))
+    .orElse(localEnvValue("ANDROID_RELEASE_STORE_PASSWORD"))
+    .get()
+val releaseKeyAlias = providers.gradleProperty("ANDROID_RELEASE_KEY_ALIAS")
+    .orElse(providers.environmentVariable("ANDROID_RELEASE_KEY_ALIAS"))
+    .orElse(localEnvValue("ANDROID_RELEASE_KEY_ALIAS"))
+    .get()
+val releaseKeyPassword = providers.gradleProperty("ANDROID_RELEASE_KEY_PASSWORD")
+    .orElse(providers.environmentVariable("ANDROID_RELEASE_KEY_PASSWORD"))
+    .orElse(localEnvValue("ANDROID_RELEASE_KEY_PASSWORD"))
+    .get()
+val releaseSigningConfigured = listOf(
+    releaseStoreFilePath,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+).all { it.isNotBlank() }
+
+gradle.taskGraph.whenReady {
+    if (allTasks.any { it.name == "assembleRelease" || it.name == "bundleRelease" }) {
+        check(releaseSigningConfigured) { "Release signing is not configured." }
+    }
+}
 
 android {
     namespace = "com.semap.app"
@@ -31,15 +65,17 @@ android {
         applicationId = "com.semap.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 100
-        versionName = "1.0"
+        versionCode = 102
+        versionName = "1.2"
         buildConfigField(
             "String",
             "SEMAP_API_BASE_URL",
             "\"${providers.gradleProperty("SEMAP_API_BASE_URL").orElse("https://semap.xyz/api/").get()}\"",
         )
         buildConfigField("Boolean", "GOOGLE_MAPS_CONFIGURED", googleMapsApiKey.isNotBlank().toString())
+        buildConfigField("Boolean", "AMAP_MAPS_CONFIGURED", amapAndroidApiKey.isNotBlank().toString())
         manifestPlaceholders["googleMapsApiKey"] = googleMapsApiKey
+        manifestPlaceholders["amapMapsApiKey"] = amapAndroidApiKey
     }
 
     buildFeatures {
@@ -47,11 +83,35 @@ android {
         compose = true
     }
 
+    lint {
+        checkReleaseBuilds = false
+    }
+
     signingConfigs {
         getByName("debug") {
             enableV1Signing = true
             enableV2Signing = true
             enableV3Signing = true
+        }
+        create("release") {
+            if (releaseSigningConfigured) {
+                storeFile = file(releaseStoreFilePath)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            if (releaseSigningConfigured) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 }
@@ -71,6 +131,7 @@ dependencies {
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.4.0")
     implementation("com.google.android.gms:play-services-location:21.4.0")
     implementation("com.google.maps.android:maps-compose:8.3.0")
+    implementation("com.amap.api:3dmap:10.0.600")
     implementation("com.squareup.okhttp3:okhttp:5.4.0")
     implementation("com.squareup.retrofit2:retrofit:3.0.0")
     implementation("com.squareup.retrofit2:converter-kotlinx-serialization:3.0.0")

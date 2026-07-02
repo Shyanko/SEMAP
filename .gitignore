@@ -1,4 +1,5 @@
 .env
+.secrets/
 api/
 .venv/
 node_modules/

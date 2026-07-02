@@ -41,6 +41,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -54,9 +55,22 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.core.content.ContextCompat
 import coil3.compose.SubcomposeAsyncImage
+import com.amap.api.maps.AMap
+import com.amap.api.maps.MapView
+import com.amap.api.maps.MapsInitializer
+import com.amap.api.maps.CameraUpdateFactory as AmapCameraUpdateFactory
+import com.amap.api.maps.model.LatLng as AmapLatLng
+import com.amap.api.maps.model.LatLngBounds as AmapLatLngBounds
+import com.amap.api.maps.model.MarkerOptions as AmapMarkerOptions
+import com.amap.api.maps.model.PolylineOptions as AmapPolylineOptions
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
@@ -73,12 +87,16 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 private val DefaultCenter = LatLng(35.8617, 104.1954)
+private val AmapDefaultCenter = AmapLatLng(35.8617, 104.1954)
+private enum class MapProvider { Google, Amap }
 
 class MainActivity : ComponentActivity() {
     private val viewModel by viewModels<SemapViewModel>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        MapsInitializer.updatePrivacyShow(this, true, true)
+        MapsInitializer.updatePrivacyAgree(this, true)
         setContent {
             SemapTheme {
                 SemapApp(viewModel)
@@ -345,6 +363,11 @@ private fun TrackMapScreen(
     selectedSegment: TrackSegment?,
     onSelectSegment: (Int) -> Unit,
 ) {
+    var mapProvider by remember {
+        mutableStateOf(
+            if (BuildConfig.GOOGLE_MAPS_CONFIGURED) MapProvider.Google else MapProvider.Amap,
+        )
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -359,16 +382,39 @@ private fun TrackMapScreen(
                 .clip(RoundedCornerShape(8.dp))
                 .background(Color.White),
         ) {
-            if (BuildConfig.GOOGLE_MAPS_CONFIGURED) {
-                SegmentMap(
-                    segments = segments,
-                    selectedSegment = selectedSegment,
-                    onSelectSegment = onSelectSegment,
-                )
-            } else {
-                EmptyPanel("缺少 GOOGLE_MAPS_API_KEY")
+            when (mapProvider) {
+                MapProvider.Google -> {
+                    if (BuildConfig.GOOGLE_MAPS_CONFIGURED) {
+                        GoogleSegmentMap(
+                            segments = segments,
+                            selectedSegment = selectedSegment,
+                            onSelectSegment = onSelectSegment,
+                        )
+                    } else {
+                        EmptyPanel("缺少 GOOGLE_MAPS_API_KEY")
+                    }
+                }
+                MapProvider.Amap -> {
+                    if (BuildConfig.AMAP_MAPS_CONFIGURED) {
+                        AmapSegmentMap(
+                            segments = segments,
+                            selectedSegment = selectedSegment,
+                            onSelectSegment = onSelectSegment,
+                        )
+                    } else {
+                        EmptyPanel("缺少 AMAP_ANDROID_API_KEY")
+                    }
+                }
             }
-            if (segments.isEmpty() && BuildConfig.GOOGLE_MAPS_CONFIGURED) {
+            MapSourcePicker(
+                mapProvider = mapProvider,
+                onMapProviderChange = { mapProvider = it },
+            )
+            if (segments.isEmpty() && when (mapProvider) {
+                    MapProvider.Google -> BuildConfig.GOOGLE_MAPS_CONFIGURED
+                    MapProvider.Amap -> BuildConfig.AMAP_MAPS_CONFIGURED
+                }
+            ) {
                 MapHint("暂无轨迹")
             }
         }
@@ -383,7 +429,55 @@ private fun TrackMapScreen(
 }
 
 @Composable
-private fun SegmentMap(
+private fun BoxScope.MapSourcePicker(
+    mapProvider: MapProvider,
+    onMapProviderChange: (MapProvider) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .align(Alignment.TopStart)
+            .padding(14.dp)
+            .background(Color.White, RoundedCornerShape(8.dp))
+            .border(1.dp, Border, RoundedCornerShape(8.dp)),
+    ) {
+        MapSourceButton(
+            label = "Google",
+            selected = mapProvider == MapProvider.Google,
+            enabled = BuildConfig.GOOGLE_MAPS_CONFIGURED,
+            onClick = { onMapProviderChange(MapProvider.Google) },
+        )
+        MapSourceButton(
+            label = "高德",
+            selected = mapProvider == MapProvider.Amap,
+            enabled = BuildConfig.AMAP_MAPS_CONFIGURED,
+            onClick = { onMapProviderChange(MapProvider.Amap) },
+        )
+    }
+}
+
+@Composable
+private fun MapSourceButton(
+    label: String,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Text(
+        label,
+        modifier = Modifier
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 9.dp),
+        color = when {
+            !enabled -> Muted
+            selected -> Danger
+            else -> TextPrimary
+        },
+        fontWeight = FontWeight.Bold,
+    )
+}
+
+@Composable
+private fun GoogleSegmentMap(
     segments: List<TrackSegment>,
     selectedSegment: TrackSegment?,
     onSelectSegment: (Int) -> Unit,
@@ -450,6 +544,57 @@ private fun SegmentMap(
             }
         }
     }
+}
+
+@Composable
+private fun AmapSegmentMap(
+    segments: List<TrackSegment>,
+    selectedSegment: TrackSegment?,
+    onSelectSegment: (Int) -> Unit,
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var amap by remember { mutableStateOf<AMap?>(null) }
+    val mapView = remember {
+        MapView(context).apply {
+            onCreate(null)
+            onResume()
+            map.uiSettings.isZoomControlsEnabled = false
+            map.uiSettings.isScaleControlsEnabled = false
+        }
+    }
+
+    DisposableEffect(lifecycleOwner, mapView) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> mapView.onResume()
+                Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                Lifecycle.Event.ON_DESTROY -> mapView.onDestroy()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            mapView.onDestroy()
+        }
+    }
+
+    LaunchedEffect(amap, segments, selectedSegment?.id) {
+        amap?.renderAmapSegments(
+            segments = segments,
+            selectedSegment = selectedSegment,
+            onSelectSegment = onSelectSegment,
+        )
+    }
+
+    AndroidView(
+        modifier = Modifier.fillMaxSize(),
+        factory = {
+            amap = mapView.map
+            mapView
+        },
+    )
 }
 
 @Composable
@@ -945,7 +1090,7 @@ private fun BoxScope.MapHint(text: String) {
         text,
         modifier = Modifier
             .align(Alignment.TopStart)
-            .padding(14.dp)
+            .padding(start = 14.dp, top = 58.dp)
             .background(Color.White, RoundedCornerShape(8.dp))
             .border(1.dp, Border, RoundedCornerShape(8.dp))
             .padding(horizontal = 10.dp, vertical = 7.dp),
@@ -965,9 +1110,71 @@ private fun CenterStatus(text: String) {
     }
 }
 
+private fun AMap.renderAmapSegments(
+    segments: List<TrackSegment>,
+    selectedSegment: TrackSegment?,
+    onSelectSegment: (Int) -> Unit,
+) {
+    clear()
+    val polylineSegments = mutableMapOf<String, Int>()
+    val markerSegments = mutableMapOf<String, Int>()
+    setOnPolylineClickListener { polyline ->
+        polylineSegments[polyline.id]?.let(onSelectSegment)
+    }
+    setOnMarkerClickListener { marker ->
+        markerSegments[marker.id]?.let(onSelectSegment)
+        true
+    }
+
+    for (segment in segments) {
+        val selected = segment.id == selectedSegment?.id
+        val path = segment.points.map { AmapLatLng(it.lat, it.lng) }
+        if (path.size > 1) {
+            val polyline = addPolyline(
+                AmapPolylineOptions()
+                    .addAll(path)
+                    .color(if (selected) Danger.toArgb() else Brand.toArgb())
+                    .width(if (selected) 10f else 6f)
+                    .zIndex(if (selected) 20f else 5f),
+            )
+            polylineSegments[polyline.id] = segment.id
+        }
+
+        for ((index, point) in segment.points.withIndex()) {
+            if (!shouldShowMarker(segment, index, point)) {
+                continue
+            }
+            val marker = addMarker(
+                AmapMarkerOptions()
+                    .position(AmapLatLng(point.lat, point.lng))
+                    .title(segment.title)
+                    .snippet(point.name)
+                    .zIndex(if (selected) 30f else 10f),
+            )
+            markerSegments[marker.id] = segment.id
+        }
+    }
+
+    val points = visibleAmapPoints(selectedSegment, segments)
+    when (points.size) {
+        0 -> animateCamera(AmapCameraUpdateFactory.newLatLngZoom(AmapDefaultCenter, 4f))
+        1 -> animateCamera(AmapCameraUpdateFactory.newLatLngZoom(points.first(), 10f))
+        else -> {
+            val bounds = AmapLatLngBounds.builder()
+            points.forEach { bounds.include(it) }
+            animateCamera(AmapCameraUpdateFactory.newLatLngBounds(bounds.build(), 90))
+        }
+    }
+}
+
 private fun visiblePoints(selectedSegment: TrackSegment?, segments: List<TrackSegment>): List<LatLng> {
     val source = if (selectedSegment?.points?.isNotEmpty() == true) listOf(selectedSegment) else segments
     return source.flatMap { segment -> segment.points.map { LatLng(it.lat, it.lng) } }
+}
+
+private fun visibleAmapPoints(selectedSegment: TrackSegment?, segments: List<TrackSegment>): List<AmapLatLng> {
+    val source = if (selectedSegment?.points?.isNotEmpty() == true) listOf(selectedSegment) else segments
+    return source.flatMap { segment -> segment.points.map { AmapLatLng(it.lat, it.lng) } }
 }
 
 private fun shouldShowMarker(segment: TrackSegment, index: Int, point: TrackPoint): Boolean {

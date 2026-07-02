@@ -484,7 +484,7 @@ function Workspace({
 function ApkDownloadLink() {
   return (
     <div className="downloadBlock">
-      <a className="downloadButton" download href="/downloads/SEMAP-1.0.apk">
+      <a className="downloadButton" download href="/downloads/SEMAP-1.2.apk">
         <Download size={16} />
         下载 Android APK
       </a>
