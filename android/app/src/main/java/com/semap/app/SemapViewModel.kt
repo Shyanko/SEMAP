@@ -97,6 +97,57 @@ class SemapViewModel(application: Application) : AndroidViewModel(application) {
         state = state.copy(selectedSegmentId = segmentId)
     }
 
+    fun updateSegment(
+        segmentId: Int,
+        version: Int,
+        title: String,
+        startedAt: String?,
+        endedAt: String?,
+        onDone: () -> Unit,
+    ) {
+        val token = state.token ?: return
+        viewModelScope.launch {
+            state = state.copy(busy = true, error = null)
+            runCatching {
+                api.updateSegment(
+                    "Bearer $token",
+                    segmentId,
+                    SegmentUpdateRequest(version, title, startedAt, endedAt),
+                )
+            }.onSuccess { segment ->
+                state = state.copy(
+                    busy = false,
+                    segments = mergeSegment(state.segments, segment),
+                    selectedSegmentId = segment.id,
+                    error = null,
+                )
+                onDone()
+            }.onFailure {
+                state = state.copy(busy = false, error = errorMessage(it, "保存失败"))
+            }
+        }
+    }
+
+    fun deleteSegment(segmentId: Int, version: Int, onDone: () -> Unit) {
+        val token = state.token ?: return
+        viewModelScope.launch {
+            state = state.copy(busy = true, error = null)
+            runCatching {
+                api.deleteSegment("Bearer $token", segmentId, version)
+            }.onSuccess {
+                state = state.copy(
+                    busy = false,
+                    segments = state.segments.filterNot { segment -> segment.id == segmentId },
+                    selectedSegmentId = null,
+                    error = null,
+                )
+                onDone()
+            }.onFailure {
+                state = state.copy(busy = false, error = errorMessage(it, "删除失败"))
+            }
+        }
+    }
+
     fun showMap() {
         state = state.copy(view = AppView.Map)
     }

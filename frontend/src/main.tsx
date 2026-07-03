@@ -89,6 +89,17 @@ function fromDateTimeLocal(value: string) {
   return value ? `${value}:00+08:00` : null;
 }
 
+function trackStartTime(segment: TrackSegment) {
+  return segment.startedAt ? new Date(segment.startedAt).getTime() : Number.POSITIVE_INFINITY;
+}
+
+function sortSegmentsByStartTime(segments: TrackSegment[]) {
+  return [...segments].sort((left, right) => {
+    const timeDelta = trackStartTime(left) - trackStartTime(right);
+    return timeDelta === 0 ? left.id - right.id : timeDelta;
+  });
+}
+
 function App() {
   const [health, setHealth] = React.useState<HealthState>("checking");
   const [token, setToken] = React.useState(() => localStorage.getItem(TOKEN_STORAGE_KEY) ?? "");
@@ -484,7 +495,7 @@ function Workspace({
 function ApkDownloadLink() {
   return (
     <div className="downloadBlock">
-      <a className="downloadButton" download href="/downloads/SEMAP-1.3.apk">
+      <a className="downloadButton" download href="/downloads/SEMAP-1.4.apk">
         <Download size={16} />
         下载 Android APK
       </a>
@@ -547,6 +558,7 @@ function TrackList({
   selectedSegment: TrackSegment | null;
   onSelectSegment: (segmentId: number | null) => void;
 }) {
+  const sortedSegments = React.useMemo(() => sortSegmentsByStartTime(segments), [segments]);
   return (
     <div className="panelSection">
       <div className="panelHeader">
@@ -556,7 +568,7 @@ function TrackList({
       {error ? <p className="formError">{error}</p> : null}
       {segments.length === 0 && !busy ? <p className="emptyText">暂无轨迹</p> : null}
       <div className="trackList">
-        {segments.map((segment) => (
+        {sortedSegments.map((segment) => (
           <div
             className={selectedSegment?.id === segment.id ? "trackItem active" : "trackItem"}
             key={segment.id}

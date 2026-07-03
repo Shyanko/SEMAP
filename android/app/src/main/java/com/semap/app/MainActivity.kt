@@ -34,6 +34,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -46,6 +47,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -153,6 +155,8 @@ private fun SemapApp(viewModel: SemapViewModel) {
                 onImportFlight = viewModel::importFlight,
                 onLookupTrainStations = viewModel::lookupTrainStations,
                 onImportTrain = viewModel::importTrain,
+                onUpdateSegment = viewModel::updateSegment,
+                onDeleteSegment = viewModel::deleteSegment,
                 onStartGps = viewModel::startGpsRecording,
                 onPauseGps = viewModel::pauseGpsRecording,
                 onResumeGps = viewModel::resumeGpsRecording,
@@ -241,12 +245,16 @@ private fun MainScreen(
     onImportFlight: (String, String) -> Unit,
     onLookupTrainStations: (String, String) -> Unit,
     onImportTrain: (String, String, String, String) -> Unit,
+    onUpdateSegment: (Int, Int, String, String?, String?, () -> Unit) -> Unit,
+    onDeleteSegment: (Int, Int, () -> Unit) -> Unit,
     onStartGps: () -> Unit,
     onPauseGps: () -> Unit,
     onResumeGps: () -> Unit,
     onFinishGps: () -> Unit,
 ) {
     val selectedSegment = state.segments.firstOrNull { it.id == state.selectedSegmentId }
+    var editingSegment by remember { mutableStateOf<TrackSegment?>(null) }
+    var mapProvider by rememberSaveable { mutableStateOf(defaultMapProvider()) }
     val title = when (state.view) {
         AppView.Map -> "轨迹地图"
         AppView.List -> "轨迹列表"
@@ -312,11 +320,14 @@ private fun MainScreen(
                         segments = state.segments,
                         selectedSegment = selectedSegment,
                         onSelectSegment = onSelectSegment,
+                        mapProvider = mapProvider,
+                        onMapProviderChange = { mapProvider = it },
                     )
                     AppView.List -> TrackList(
                         segments = state.segments,
                         selectedSegment = selectedSegment,
                         onSelectSegment = onSelectSegment,
+                        onEditSegment = { editingSegment = it },
                     )
                     AppView.FlightImport -> ScrollScreen {
                         FlightImportScreen(
@@ -344,6 +355,29 @@ private fun MainScreen(
                 }
             }
         }
+        editingSegment?.let { segment ->
+            SegmentEditDialog(
+                segment = segment,
+                busy = state.busy,
+                onClose = { editingSegment = null },
+                onSave = { titleValue, startedAt, endedAt ->
+                    onUpdateSegment(
+                        segment.id,
+                        segment.version,
+                        titleValue,
+                        startedAt,
+                        endedAt,
+                    ) {
+                        editingSegment = null
+                    }
+                },
+                onDelete = {
+                    onDeleteSegment(segment.id, segment.version) {
+                        editingSegment = null
+                    }
+                },
+            )
+        }
     }
 }
 
@@ -362,12 +396,9 @@ private fun TrackMapScreen(
     segments: List<TrackSegment>,
     selectedSegment: TrackSegment?,
     onSelectSegment: (Int) -> Unit,
+    mapProvider: MapProvider,
+    onMapProviderChange: (MapProvider) -> Unit,
 ) {
-    var mapProvider by remember {
-        mutableStateOf(
-            if (BuildConfig.GOOGLE_MAPS_CONFIGURED) MapProvider.Google else MapProvider.Amap,
-        )
-    }
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -401,7 +432,7 @@ private fun TrackMapScreen(
         }
         MapSourcePicker(
             mapProvider = mapProvider,
-            onMapProviderChange = { mapProvider = it },
+            onMapProviderChange = onMapProviderChange,
         )
         if (segments.isEmpty() && when (mapProvider) {
                 MapProvider.Google -> BuildConfig.GOOGLE_MAPS_CONFIGURED
@@ -587,21 +618,24 @@ private fun TrackList(
     segments: List<TrackSegment>,
     selectedSegment: TrackSegment?,
     onSelectSegment: (Int) -> Unit,
+    onEditSegment: (TrackSegment) -> Unit,
 ) {
     if (segments.isEmpty()) {
         EmptyPanel("暂无轨迹")
         return
     }
+    val sortedSegments = remember(segments) { segments.sortedWith(trackSegmentStartComparator) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        items(segments, key = { it.id }) { segment ->
+        items(sortedSegments, key = { it.id }) { segment ->
             TrackRow(
                 segment = segment,
                 selected = selectedSegment?.id == segment.id,
                 onClick = { onSelectSegment(segment.id) },
+                onEdit = { onEditSegment(segment) },
             )
         }
     }
@@ -616,7 +650,7 @@ private fun FlightImportScreen(
     var date by remember { mutableStateOf(LocalDate.now().toString()) }
 
     Panel {
-        Text("FlightRadar24", color = Muted, fontWeight = FontWeight.SemiBold)
+        Text("航班号导入", color = TextPrimary, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(12.dp))
         OutlinedTextField(
             value = flightNumber,
@@ -664,7 +698,7 @@ private fun TrainImportScreen(
     val fromIndex = stations.indexOfFirst { it.name == fromStation }
 
     Panel {
-        Text("12306 指定日期", color = Muted, fontWeight = FontWeight.SemiBold)
+        Text("车次号导入", color = TextPrimary, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(12.dp))
         OutlinedTextField(
             value = trainCode,
@@ -854,7 +888,12 @@ private fun GpsRecordScreen(
 }
 
 @Composable
-private fun TrackRow(segment: TrackSegment, selected: Boolean, onClick: () -> Unit) {
+private fun TrackRow(
+    segment: TrackSegment,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onEdit: () -> Unit,
+) {
     Panel(
         modifier = Modifier
             .border(
@@ -865,7 +904,7 @@ private fun TrackRow(segment: TrackSegment, selected: Boolean, onClick: () -> Un
             .clickable(onClick = onClick),
     ) {
         if (selected) {
-            TrackSummary(segment)
+            TrackSummary(segment, onEdit)
         } else {
             CompactTrackSummary(segment)
         }
@@ -897,7 +936,7 @@ private fun CompactTrackSummary(segment: TrackSegment) {
 }
 
 @Composable
-private fun TrackSummary(segment: TrackSegment) {
+private fun TrackSummary(segment: TrackSegment, onEdit: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         TrackLogo(segment)
         Spacer(Modifier.width(8.dp))
@@ -913,6 +952,84 @@ private fun TrackSummary(segment: TrackSegment) {
     Spacer(Modifier.height(8.dp))
     Text(segment.title, fontWeight = FontWeight.Bold, color = TextPrimary)
     SegmentMetadata(segment)
+    Spacer(Modifier.height(10.dp))
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        OutlinedButton(onClick = onEdit) {
+            Text("更改")
+        }
+    }
+}
+
+@Composable
+private fun SegmentEditDialog(
+    segment: TrackSegment,
+    busy: Boolean,
+    onClose: () -> Unit,
+    onSave: (String, String?, String?) -> Unit,
+    onDelete: () -> Unit,
+) {
+    var title by remember(segment.id, segment.version) { mutableStateOf(segment.title) }
+    var startedAt by remember(segment.id, segment.version) { mutableStateOf(toDateTimeInput(segment.startedAt)) }
+    var endedAt by remember(segment.id, segment.version) { mutableStateOf(toDateTimeInput(segment.endedAt)) }
+
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("更改路径", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("标题") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                )
+                OutlinedTextField(
+                    value = startedAt,
+                    onValueChange = { startedAt = it },
+                    label = { Text("出发时间 YYYY-MM-DDTHH:mm") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                )
+                OutlinedTextField(
+                    value = endedAt,
+                    onValueChange = { endedAt = it },
+                    label = { Text("到达时间 YYYY-MM-DDTHH:mm") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                )
+            }
+        },
+        dismissButton = {
+            OutlinedButton(
+                enabled = !busy,
+                onClick = onDelete,
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Danger),
+            ) {
+                Text("删除路径")
+            }
+        },
+        confirmButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(enabled = !busy, onClick = onClose) {
+                    Text("取消")
+                }
+                Button(
+                    enabled = !busy && title.isNotBlank(),
+                    onClick = {
+                        onSave(
+                            title,
+                            fromDateTimeInput(startedAt),
+                            fromDateTimeInput(endedAt),
+                        )
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Brand),
+                ) {
+                    Text(if (busy) "处理中" else "保存")
+                }
+            }
+        },
+    )
 }
 
 @Composable
@@ -1162,6 +1279,17 @@ private fun visibleAmapPoints(selectedSegment: TrackSegment?, segments: List<Tra
     return source.flatMap { segment -> segment.points.map { AmapLatLng(it.lat, it.lng) } }
 }
 
+private val trackSegmentStartComparator = compareBy<TrackSegment>(
+    { segmentStartMillis(it) ?: Long.MAX_VALUE },
+    { it.id },
+)
+
+private fun segmentStartMillis(segment: TrackSegment): Long? {
+    return segment.startedAt?.let {
+        OffsetDateTime.parse(it.replace("Z", "+00:00")).toInstant().toEpochMilli()
+    }
+}
+
 private fun shouldShowMarker(segment: TrackSegment, index: Int, point: TrackPoint): Boolean {
     if (segment.sourceType == "train") {
         return index == 0 || index == segment.points.lastIndex
@@ -1217,6 +1345,23 @@ private fun formatDateTime(value: String?): String {
     return OffsetDateTime.parse(value.replace("Z", "+00:00"))
         .atZoneSameInstant(ChinaZone)
         .format(DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm"))
+}
+
+private fun toDateTimeInput(value: String?): String {
+    if (value == null) {
+        return ""
+    }
+    return OffsetDateTime.parse(value.replace("Z", "+00:00"))
+        .atZoneSameInstant(ChinaZone)
+        .format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm"))
+}
+
+private fun fromDateTimeInput(value: String): String? {
+    return value.takeIf { it.isNotBlank() }?.let { "$it:00+08:00" }
+}
+
+private fun defaultMapProvider(): MapProvider {
+    return if (BuildConfig.GOOGLE_MAPS_CONFIGURED) MapProvider.Google else MapProvider.Amap
 }
 
 private fun hasFineLocationPermission(context: android.content.Context): Boolean {

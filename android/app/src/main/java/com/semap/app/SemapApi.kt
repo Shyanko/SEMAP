@@ -7,11 +7,13 @@ import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.PATCH
 import retrofit2.http.Path
 import retrofit2.http.POST
+import retrofit2.http.Query
 
 interface SemapApi {
     @POST("auth/register")
@@ -25,6 +27,20 @@ interface SemapApi {
 
     @GET("segments")
     suspend fun segments(@Header("Authorization") authorization: String): List<TrackSegment>
+
+    @PATCH("segments/{segmentId}")
+    suspend fun updateSegment(
+        @Header("Authorization") authorization: String,
+        @Path("segmentId") segmentId: Int,
+        @Body request: SegmentUpdateRequest,
+    ): TrackSegment
+
+    @DELETE("segments/{segmentId}")
+    suspend fun deleteSegment(
+        @Header("Authorization") authorization: String,
+        @Path("segmentId") segmentId: Int,
+        @Query("version") version: Int,
+    )
 
     @POST("import/flight")
     suspend fun importFlight(
@@ -123,6 +139,14 @@ data class TrainImportRequest(
 data class TrainStationsRequest(
     val trainCode: String,
     val date: String,
+)
+
+@Serializable
+data class SegmentUpdateRequest(
+    val version: Int,
+    val title: String,
+    val startedAt: String? = null,
+    val endedAt: String? = null,
 )
 
 @Serializable
