@@ -9,6 +9,7 @@ from app.importers import (
     ImportedPoint,
     ImportedSegment,
     ImportFailure,
+    flight_airline_code,
     parse_iata_airline_name,
     parse_iata_airport_location,
     select_train_rows,
@@ -307,6 +308,14 @@ def test_parse_iata_airline_name():
     assert parse_iata_airline_name(html, "UAL") is None
 
 
+def test_flight_airline_code_supports_iata_two_character_codes():
+    assert flight_airline_code("UA938") == "UA"
+    assert flight_airline_code("CZ1145") == "CZ"
+    assert flight_airline_code("3U8887") == "3U"
+    assert flight_airline_code("U238") == "U2"
+    assert flight_airline_code("CSC8887") is None
+
+
 def test_flight_metadata_uses_iata_airline_name(monkeypatch):
     monkeypatch.setattr(importers, "iata_airline_name", lambda code: "United Airlines Inc" if code == "UA" else None)
 
@@ -322,6 +331,29 @@ def test_flight_metadata_uses_iata_airline_name(monkeypatch):
     assert metadata["vehicleModel"] == "B763"
     assert metadata["registration"] == "N674UA"
     assert metadata["logoUrl"] == "/api/assets/airline-logos/UA.png"
+
+
+def test_flight_metadata_uses_digit_iata_code_instead_of_icao_operator(monkeypatch):
+    requested_codes = []
+
+    def fake_iata_airline_name(code):
+        requested_codes.append(code)
+        return "Sichuan Airlines Co. Ltd." if code == "3U" else None
+
+    monkeypatch.setattr(importers, "iata_airline_name", fake_iata_airline_name)
+
+    metadata = importers.flight_metadata(
+        "3U8887",
+        {"painted_as": "CSC", "type": "A320", "reg": "B-8888"},
+        "Chengdu Tianfu Intl",
+        "Guangzhou Baiyun Intl",
+    )
+
+    assert requested_codes == ["3U"]
+    assert metadata["operatorName"] == "Sichuan Airlines Co. Ltd."
+    assert metadata["operatorCode"] == "3U"
+    assert metadata["logoUrl"] == "/api/assets/airline-logos/3U.png"
+    assert metadata["logoText"] == "3U"
 
 
 def test_airline_logo_endpoint_returns_backend_cached_file(monkeypatch, tmp_path):

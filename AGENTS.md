@@ -373,6 +373,7 @@ Android 版本规则：
 4. 外部服务失败时不写入轨迹。
 5. 标题由后端按航班号生成。
 6. `metadata` 写入机型、飞机注册号、航空公司、起飞地点、降落地点、后端航司 logo URL 和文字 fallback。
+7. 航空公司通过航班号中的 IATA 两字符航司码查询，支持 `3U`、`U2` 这类字母数字组合，不使用 FR24 返回的 `UAL`、`CSC` 这类三字符 ICAO 运营码查询 IATA。
 7. 航司 logo 由后端通过 `/api/assets/airline-logos/{code}.png` 获取并缓存，客户端不直接访问第三方 logo 源。
 8. 航空公司使用 IATA code-search 按航班号中的航司二字码解析公司名，查询失败时返回导入错误，不写入运营方兜底值。
 9. 起飞地点和降落地点使用 IATA code-search 将 IATA 代码解析为城市和机场名。

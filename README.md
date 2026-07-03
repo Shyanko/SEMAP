@@ -219,7 +219,7 @@ HTTPS 使用 Let's Encrypt 证书，Nginx 站点配置在 `/etc/nginx/conf.d/sem
 - 用户输入日期没有可用车次时，火车导入会自动尝试服务器当前日期起未来 7 天，并把查询到的车次和时刻映射到用户输入日期返回。
 - 火车导入轨迹会保留区间内中间站坐标用于折线，地图 Marker 只显示起点和终点。
 - 航班导入使用 IATA code-search 将起降 IATA 代码解析为城市和机场名，用于 `originLocation` 和 `destinationLocation` 展示。
-- 航班导入使用 IATA code-search 按航班号中的航司二字码解析运营方公司名，例如 `UA` 解析为 `United Airlines Inc`。航司查询失败时返回导入错误，不写入 `UAL` 这类兜底值。
+- 航班导入使用 IATA code-search 按航班号中的 IATA 两字符航司码解析运营方公司名，例如 `UA` 解析为 `United Airlines Inc`，`3U` 解析为 `Sichuan Airlines Co. Ltd.`。后端不使用 FR24 返回的三字符 ICAO 运营码查询 IATA，例如不使用 `UAL` 或 `CSC` 查询运营方。航司查询失败时返回导入错误，不写入三字符运营码这类兜底值。
 - 外部导入轨迹返回 `metadata`。航班轨迹包含 `vehicleModel`、`registration`、`operatorName`、`operatorCode`、`originLocation`、`destinationLocation`、`logoUrl` 和 `logoText`。航班 `logoUrl` 使用后端缓存代理 `/api/assets/airline-logos/{code}.png`，客户端不直接访问第三方 logo 源。火车轨迹包含 `vehicleModel`、`unitNo`、`operatorCode=12306`、`logoKind=railway_12306`、`logoUrl=/logos/China_Railways.svg` 和 `logoText=12306`。
 - 外部服务失败时接口返回包含外部服务详情的中文错误，不写入轨迹数据。
 

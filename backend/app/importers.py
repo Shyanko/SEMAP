@@ -132,7 +132,7 @@ def response_error(data: dict[str, Any]) -> str:
 
 
 def flight_airline_code(flight_code: str) -> str | None:
-    match = re.match(r"^[A-Z]{2,3}", flight_code)
+    match = re.match(r"^([A-Z0-9]{2})(?=\d)", flight_code.upper())
     return match.group(0) if match else None
 
 
@@ -248,7 +248,7 @@ def flight_metadata(
 ) -> dict[str, Any]:
     airline_code = flight_airline_code(flight_code)
     operator_code = flight.get("painted_as") or flight.get("operating_as") or airline_code
-    operator_name = iata_airline_name(airline_code or operator_code) if airline_code or operator_code else None
+    operator_name = iata_airline_name(airline_code) if airline_code else None
     metadata = {
         "vehicleModel": flight.get("type"),
         "registration": flight.get("reg"),
