@@ -1,4 +1,4 @@
-# SEMAP 项目说明
+# SEMAP
 
 SEMAP 是 Web 前端 + Android App + 云端后端的移动轨迹记录与地图展示系统。
 
