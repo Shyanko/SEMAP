@@ -4,7 +4,6 @@ SEMAP 是 Web 前端 + Android App + 云端后端的移动轨迹记录与地图�
 
 ## 目录
 
-- `AGENTS.md`：确定性交付计划和 agent 工作规则。
 - `backend/`：FastAPI 后端。
 - `frontend/`：React + TypeScript Web 前端。
 - `android/`：Kotlin + Jetpack Compose Android App。
